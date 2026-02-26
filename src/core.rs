@@ -10,11 +10,17 @@ pub struct Rect {
 
 pub struct Stack {
     pub focused: WindowId,
-    pub up: Vec<WindowId>,
-    pub down: Vec<WindowId>,
+    pub clients: Vec<WindowId>,
 }
 
 pub struct Workspace {
     pub name: String,
-    pub stack: Option<Stack>,
+    pub stack: Stack,
+}
+
+impl Stack {
+    pub fn add(&mut self, win: WindowId) {
+        self.clients.push(win);
+        self.focused = win;
+    }
 }
