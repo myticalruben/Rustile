@@ -1,7 +1,9 @@
 [package]
 name = "rustile"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
+description = "This is a Window Tiling Manager with Rust on x11 for now"
+license = "MIT"
 
 [dependencies]
 #Comunicacion con el servidor X 
