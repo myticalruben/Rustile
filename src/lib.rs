@@ -2,8 +2,8 @@ use x11rb::{
     connection::Connection,
     protocol::{
         xproto::{
-            ChangeWindowAttributesAux, ConfigureWindowAux, EventMask, change_window_attributes,
-            configure_window, map_window,
+            ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask,
+            change_window_attributes, configure_window, map_window,
         },
         *,
     },
@@ -45,7 +45,13 @@ impl<C: Connection> Rustile<C> {
                     self.handle_map_request(e.window)?;
                 }
                 Event::UnmapNotify(e) => {
-                    println!("Ventana cerrada: {:?}", e.window)
+                    // Eliminar la ventana del stack
+                    let ws = &mut self.workspaces[self.current_workspace];
+                    let ws = ws.stack.as_mut().unwrap();
+                    ws.clients.retain(|&id| id != e.window);
+
+                    // Recalcular el espacio para las que quedan
+                    self.apply_layour()?;
                 }
 
                 _ => {}
@@ -70,21 +76,50 @@ impl<C: Connection> Rustile<C> {
     }
 
     fn apply_layour(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let screen = &self.conn.setup().roots[self.screen_num];
+        let ws = &self.workspaces[self.current_workspace];
+        let n = ws.stack.as_ref().unwrap().clients.len();
+
+        if n == 0 {
+            return Ok(());
+        }
+
+        // Layout de Columnas Simple:
+        let width_per_window = screen.width_in_pixels as u32 / n as u32;
+        let height = screen.height_in_pixels as u32;
+
+        for (i, &win) in ws.stack.as_ref().unwrap().clients.iter().enumerate() {
+            let x = i as u32 * width_per_window;
+
+            let values = ConfigureWindowAux::default()
+                .x(x as i32)
+                .y(0)
+                .width(width_per_window)
+                .height(height);
+
+            self.conn.configure_window(win, &values)?;
+        }
+
+        self.conn.flush()?;
         Ok(())
     }
 
-    fn handle_map_request(&self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
-        let values = ConfigureWindowAux::default()
-            .width(800)
-            .height(600)
-            .x(100)
-            .y(100);
+    fn handle_map_request(&mut self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
+        // 1. Añadir al stack del workspace actual
+        self.workspaces[self.current_workspace].stack.as_mut().and(Some(win));
 
-        configure_window(&self.conn, win, &values)?;
-        map_window(&self.conn, win)?;
-        self.conn.flush()?;
+        // 2. Escuchar si la ventana se destruye o se mueve
+        let attrs = ChangeWindowAttributesAux::default()
+            .event_mask(EventMask::ENTER_WINDOW | EventMask::STRUCTURE_NOTIFY);
+        self.conn.change_window_attributes(win, &attrs)?;
 
-        println!("Ventana adoptada: {:?}", win);
+        // 3. Mapear (mostrar) la ventana
+        self.conn.map_window(win)?;
+
+        // 4. Recalcular posiciones de TODAS las ventanas
+        self.apply_layour()?;
+
+        println!("Ventana añadida al stack: {:?}", win);
         Ok(())
     }
 }

@@ -15,7 +15,7 @@ pub struct Stack {
 
 pub struct Workspace {
     pub name: String,
-    pub stack: Stack,
+    pub stack: Option<Stack>,
 }
 
 impl Stack {

@@ -1,0 +1,9 @@
+services:
+  rustile:
+    build: .
+    volumes:
+      - .:/app
+    environment:
+      # IMPORTANTE: Reemplaza con la IP de tu Windows (la de VcXsrv)
+      - DISPLAY=host.docker.internal:0
+    network_mode: host # Permite conectar con el servidor X de Windows fácilmente
