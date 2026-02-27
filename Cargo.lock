@@ -246,6 +246,7 @@ dependencies = [
  "log",
  "thiserror",
  "x11rb",
+ "xkeysym",
 ]
 
 [[package]]
@@ -348,6 +349,7 @@ dependencies = [
  "gethostname",
  "rustix",
  "x11rb-protocol",
+ "xcursor",
 ]
 
 [[package]]
@@ -355,3 +357,15 @@ name = "x11rb-protocol"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
+
+[[package]]
+name = "xcursor"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bec9e4a500ca8864c5b47b8b482a73d62e4237670e5b5f1d6b9e3cae50f28f2b"
+
+[[package]]
+name = "xkeysym"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
