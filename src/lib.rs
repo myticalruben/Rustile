@@ -9,7 +9,7 @@ use x11rb::{
     },
 };
 
-use crate::core::{WindowId, Workspace};
+use crate::core::{Stack, WindowId, Workspace};
 
 mod core;
 
@@ -25,10 +25,7 @@ impl<C: Connection> Rustile<C> {
         Self {
             conn,
             screen_num,
-            workspaces: vec![Workspace {
-                name: "1".to_string(),
-                stack: None,
-            }],
+            workspaces: vec![Workspace {name:"1".to_string(), stack: Stack { focused: 1, clients: vec![1] } }],
             current_workspace: 0,
         }
     }
@@ -47,8 +44,7 @@ impl<C: Connection> Rustile<C> {
                 Event::UnmapNotify(e) => {
                     // Eliminar la ventana del stack
                     let ws = &mut self.workspaces[self.current_workspace];
-                    let ws = ws.stack.as_mut().unwrap();
-                    ws.clients.retain(|&id| id != e.window);
+                    ws.stack.clients.retain(|&id| id != e.window);
 
                     // Recalcular el espacio para las que quedan
                     self.apply_layour()?;
@@ -78,7 +74,7 @@ impl<C: Connection> Rustile<C> {
     fn apply_layour(&self) -> Result<(), Box<dyn std::error::Error>> {
         let screen = &self.conn.setup().roots[self.screen_num];
         let ws = &self.workspaces[self.current_workspace];
-        let n = ws.stack.as_ref().unwrap().clients.len();
+        let n = ws.stack.clients.len();
 
         if n == 0 {
             return Ok(());
@@ -88,7 +84,7 @@ impl<C: Connection> Rustile<C> {
         let width_per_window = screen.width_in_pixels as u32 / n as u32;
         let height = screen.height_in_pixels as u32;
 
-        for (i, &win) in ws.stack.as_ref().unwrap().clients.iter().enumerate() {
+        for (i, &win) in ws.stack.clients.iter().enumerate() {
             let x = i as u32 * width_per_window;
 
             let values = ConfigureWindowAux::default()
@@ -106,7 +102,7 @@ impl<C: Connection> Rustile<C> {
 
     fn handle_map_request(&mut self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
         // 1. Añadir al stack del workspace actual
-        self.workspaces[self.current_workspace].stack.as_mut().and(Some(win));
+        self.workspaces[self.current_workspace].stack.add(win);
 
         // 2. Escuchar si la ventana se destruye o se mueve
         let attrs = ChangeWindowAttributesAux::default()
