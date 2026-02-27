@@ -15,11 +15,16 @@ fn main() {
         KeyBinding {
             modifiers: mods::ALT,
             key: Keysym::Return,
-            action: Action::Spawn("xterm".into()),
+            action: Action::Spawn("alacritty".into()),
         },
         KeyBinding {
             modifiers: mods::ALT,
-            key: Keysym::Q,
+            key: Keysym::b,
+            action: Action::Spawn("brave-browser".into()),
+        },
+        KeyBinding {
+            modifiers: mods::ALT,
+            key: Keysym::q,
             action: Action::KillClient,
         },
     ];

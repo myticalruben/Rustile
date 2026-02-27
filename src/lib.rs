@@ -8,14 +8,11 @@
     },
 };*/
 
-
-
 use std::collections::HashMap;
 use std::process::{Command, Stdio};
 
-
-use x11rb::protocol::{Event, xproto::*};
 use x11rb::connection::Connection;
+use x11rb::protocol::{Event, xproto::*};
 
 use xkeysym::Keysym;
 
@@ -29,7 +26,7 @@ pub struct Rustile<C: Connection> {
     screen_num: usize,
     workspaces: Vec<Workspace>,
     current_workspace: usize,
-    key_map:HashMap<(u16, u8), Action>,
+    key_map: HashMap<(u16, u8), Action>,
 }
 
 impl<C: Connection> Rustile<C> {
@@ -37,9 +34,15 @@ impl<C: Connection> Rustile<C> {
         Self {
             conn,
             screen_num,
-            workspaces: vec![Workspace {name:"1".to_string(), stack: Stack { focused: 1, clients: vec![1] } }],
+            workspaces: vec![Workspace {
+                name: "1".to_string(),
+                stack: Stack {
+                    focused: 1,
+                    clients: vec![1],
+                },
+            }],
             current_workspace: 0,
-            key_map: HashMap::new()
+            key_map: HashMap::new(),
         }
     }
 
@@ -62,10 +65,19 @@ impl<C: Connection> Rustile<C> {
                 Event::UnmapNotify(e) => {
                     // Eliminar la ventana del stack
                     let ws = &mut self.workspaces[self.current_workspace];
-                    ws.stack.clients.retain(|&id| id != e.window);
 
-                    // Recalcular el espacio para las que quedan
-                    self.apply_layour()?;
+                    if ws.stack.clients.contains(&e.window) {
+                        ws.stack.clients.retain(|&id| id != e.window);
+
+                        // Si era la que tenia el foco, pasar el foco a la siguiente
+                        if ws.stack.focused == e.window {
+                            if let Some(&next) = ws.stack.clients.last() {
+                                self.set_focus(next)?;
+                            }
+                        }
+
+                        self.apply_layout()?;
+                    }
                 }
 
                 _ => {}
@@ -89,7 +101,7 @@ impl<C: Connection> Rustile<C> {
         Ok(())
     }
 
-    pub fn setup_keybindings(&mut self, bindings: Vec<KeyBinding>){
+    pub fn setup_keybindings(&mut self, bindings: Vec<KeyBinding>) {
         let mut map = HashMap::new();
 
         for b in bindings {
@@ -101,43 +113,44 @@ impl<C: Connection> Rustile<C> {
 
             // Tambien le decimos a X11 que "agarre" esta tecla
             let screen = &self.conn.setup().roots[self.screen_num];
-            self.conn.grab_key(
-                            false, 
-                            screen.root, 
-                            b.modifiers.into(), 
-                            code,
-                            GrabMode::ASYNC, 
-                            GrabMode::ASYNC
-                        ).ok();
+            self.conn
+                .grab_key(
+                    false,
+                    screen.root,
+                    b.modifiers.into(),
+                    code,
+                    GrabMode::ASYNC,
+                    GrabMode::ASYNC,
+                )
+                .ok();
 
             self.key_map = map.clone();
             self.conn.flush().ok();
-        
         }
     }
 
-   /*  pub fn grab_keys(&self, bindings: &[KeyBinding]) -> Result<(), Box<dyn std::error::Error>>{
-        let screen = &self.conn.setup().roots[self.screen_num];
+    /*  pub fn grab_keys(&self, bindings: &[KeyBinding]) -> Result<(), Box<dyn std::error::Error>>{
+          let screen = &self.conn.setup().roots[self.screen_num];
 
-        for b in bindings{
-            //Convertimos el nombre de la tecla (ej. "Return") a un codigo de X11
-            // Por ahora simplificado, pero qui usariamos xkbcommon
-            //let code = self.get_keycode_from_name(&b.key);
+          for b in bindings{
+              //Convertimos el nombre de la tecla (ej. "Return") a un codigo de X11
+              // Por ahora simplificado, pero qui usariamos xkbcommon
+              //let code = self.get_keycode_from_name(&b.key);
 
-            self.conn.grab_key(
-   false,                           //  owner_events
-    screen.root,                     //  Ventana donde escuchar 
-                (b.modifiers as u16).into(),     //  modificadores (Mod4, etc)
-            code,                            //  el codigo de la tecla 
-   GrabMode::ASYNC,                 //  puntero
-  GrabMode::ASYNC)?;               //  teclado
-        }
+              self.conn.grab_key(
+     false,                           //  owner_events
+      screen.root,                     //  Ventana donde escuchar
+                  (b.modifiers as u16).into(),     //  modificadores (Mod4, etc)
+              code,                            //  el codigo de la tecla
+     GrabMode::ASYNC,                 //  puntero
+    GrabMode::ASYNC)?;               //  teclado
+          }
 
-        self.conn.flush();
-        Ok(())
-    }*/
-    
-    fn execute_spawn(&self, cmd: &str) -> Result<(), Box<dyn std::error::Error>>{
+          self.conn.flush();
+          Ok(())
+      }*/
+
+    fn execute_spawn(&self, cmd: &str) -> Result<(), Box<dyn std::error::Error>> {
         // Separamos el comando de los argumentos (ej: "firefox --private"-> "firefox", ["--private"] )
 
         let mut parts = cmd.split_whitespace();
@@ -149,40 +162,47 @@ impl<C: Connection> Rustile<C> {
         let args: Vec<&str> = parts.collect();
 
         // Lanzamos el proceso
-         Command::new(program)
-        .args(args)
-        .stdin(Stdio::null()) //No queremos que hereden la entrada/salida
-        .stdout(Stdio::null()) // del window Manager
-        .stderr(Stdio::null())
-        .spawn()?;
-
+        Command::new(program)
+            .args(args)
+            .stdin(Stdio::null()) //No queremos que hereden la entrada/salida
+            .stdout(Stdio::null()) // del window Manager
+            .stderr(Stdio::null())
+            .spawn()?;
 
         Ok(())
     }
 
     fn get_keycode_from_keysym(&self, sym: Keysym) -> u8 {
         let setup = self.conn.setup();
-        let min  = setup.min_keycode;
+        let min = setup.min_keycode;
         let max = setup.max_keycode;
 
         // Obtenemos el mapa actual del servidor X
-        let mapping = self.conn.get_keyboard_mapping(min, max - min + 1)
-        .unwrap().reply().expect("No se pudo obtener el mapa de teclado");
+        let mapping = self
+            .conn
+            .get_keyboard_mapping(min, max - min + 1)
+            .unwrap()
+            .reply()
+            .expect("No se pudo obtener el mapa de teclado");
 
         // Buscamos la posicion de Keysym para obtener el Keycode fisico
 
-        for(idx, syms) in mapping.keysyms.chunks(mapping.keysyms_per_keycode as usize).enumerate(){
-            for &s in syms{
+        for (idx, syms) in mapping
+            .keysyms
+            .chunks(mapping.keysyms_per_keycode as usize)
+            .enumerate()
+        {
+            for &s in syms {
                 if s == sym.into() {
                     return min + idx as u8;
                 }
             }
         }
-        
+
         panic!("El servidor X no tiene un Keycode asignado para el Keysym")
     }
 
-    fn apply_layour(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn apply_layout(&self) -> Result<(), Box<dyn std::error::Error>> {
         let screen = &self.conn.setup().roots[self.screen_num];
         let ws = &self.workspaces[self.current_workspace];
         let n = ws.stack.clients.len();
@@ -224,13 +244,28 @@ impl<C: Connection> Rustile<C> {
         self.conn.map_window(win)?;
 
         // 4. Recalcular posiciones de TODAS las ventanas
-        self.apply_layour()?;
+        self.apply_layout()?;
 
         println!("Ventana añadida al stack: {:?}", win);
         Ok(())
     }
 
-   fn handle_key_press(&mut self, e: KeyPressEvent) -> Result<(), Box<dyn std::error::Error>>{
+    fn set_focus(&self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
+        if win == 0 {
+            return Ok(());
+        }
+
+        // Reclamar el foco de entrada para nuestro WM
+        self.conn
+            .set_input_focus(InputFocus::POINTER_ROOT, win, x11rb::CURRENT_TIME);
+
+        let values = ChangeWindowAttributesAux::default().border_pixel(0xbd93f9);
+        self.conn.change_window_attributes(win, &values)?;
+        self.conn.flush()?;
+        Ok(())
+    }
+
+    fn handle_key_press(&mut self, e: KeyPressEvent) -> Result<(), Box<dyn std::error::Error>> {
         // 1. Extraer los datos del evento
         // e.state son los modificadores (Mod4, Shift, etc.)
         // e.detail es el Keycode físico
@@ -238,26 +273,45 @@ impl<C: Connection> Rustile<C> {
         let code = e.detail;
 
         // 2. Buscar la accion en nuestro HashMap
-        if let Some(action) = self.key_map.get(&(state.into(), code)){
+        if let Some(action) = self.key_map.get(&(state.into(), code)) {
             match action {
                 Action::Spawn(cmd) => {
                     self.execute_spawn(cmd)?;
-                },
+                }
                 Action::KillClient => {
                     let ws = &mut self.workspaces[self.current_workspace];
-                    if let Some(&win) = ws.stack.clients.last() {
-                        self.conn.destroy_window(win)?;
+                    if let Some(win) = Some(ws.stack.focused).filter(|&id| id != 0) {
+                        println!("Intentando cerrar ventana: {:?}", win);
+
+                        //3. intentamos matar el cliente de forma limpia
+                        //Si usamos x11rb, esto cierra la conexion del cliente con el servidor
+                        self.conn.kill_client(win)?;
+
+                        //4. IMPORTANTE: eliminarla de nuestro Stack local inmediatamente
+                        ws.stack.clients.retain(|&id| id != win);
+
+                        //5. Resetear el foco a la ventana anterior si queda alguna
+                        if let Some(&next_win) = ws.stack.clients.last() {
+                            ws.stack.focused = next_win;
+                            self.set_focus(next_win)?;
+                        } else {
+                            ws.stack.focused = 0;
+                        }
+
+                        //5.Recalcular el layour para llenar el vacio
+                        self.apply_layout()?;
+                        self.conn.flush();
                     }
-                },
+                }
                 Action::MoveFocus(dir) => {
                     let ws = &mut self.workspaces[self.current_workspace];
-                  /*  ws.stack.rotate_focus(*dir);
+                    /*  ws.stack.rotate_focus(*dir);
                     let new_focus = ws.stack.focused;
                     self.set_focus(new_focus)?;*/
-                },
+                }
                 Action::GoToWorkspace(idx) => {
                     //self.switch_workspace(idx);
-                },
+                }
             }
         }
 
