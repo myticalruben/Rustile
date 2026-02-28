@@ -37,6 +37,16 @@ fn main() {
             key: Keysym::l,
             action: Action::MoveFocus(1),
         },
+        KeyBinding {
+            modifiers: mods::ALT | mods::SHIFT,
+            key: Keysym::h,
+            action: Action::Swap(-1),
+        },
+        KeyBinding {
+            modifiers: mods::ALT | mods::SHIFT,
+            key: Keysym::l,
+            action: Action::Swap(1),
+        },
     ];
 
     wm.setup_keybindings(test);

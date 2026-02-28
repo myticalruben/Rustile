@@ -1,3 +1,5 @@
+use std::usize;
+
 use xkeysym::Keysym;
 
 pub type WindowId = u32;
@@ -24,7 +26,8 @@ pub struct Workspace {
 
 #[derive(Debug, Clone)]
 pub enum Action {
-    Spawn(String),        //Lanzar un comando (ej. alacritty)
+    Spawn(String), //Lanzar un comando (ej. alacritty)
+    Swap(i32),
     KillClient,           // Cerrar ventana actual
     MoveFocus(i32),       // Cambiar de ventana
     GoToWorkspace(usize), // Cambiar de workspace
@@ -40,6 +43,26 @@ impl Stack {
     pub fn add(&mut self, win: WindowId) {
         self.clients.push(win);
         self.focused = win;
+    }
+
+    pub fn swap_focus(&mut self, direction: i32) {
+        if self.clients.len() < 2 {
+            return;
+        }
+
+        //1. Encontrar la posicion de la ventana enfocada
+        let current_pos = self
+            .clients
+            .iter()
+            .position(|&id| id == self.focused)
+            .unwrap_or(0);
+
+        //2. Calcular la posicion de destino
+        let len = self.clients.len() as i32;
+        let target_pos = (current_pos as i32 + direction).rem_euclid(len) as usize;
+
+        //3. Intercambiar fisicamente en el vector
+        self.clients.swap(current_pos, target_pos);
     }
 
     pub fn rotate_focus(&mut self, direction: i32) {

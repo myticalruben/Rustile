@@ -300,6 +300,92 @@ impl<C: Connection> Rustile<C> {
         Ok(())
     }
 
+    fn set_focus(&self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
+        if win == 0 {
+            return Ok(());
+        }
+
+        // Reclamar el foco de entrada para nuestro WM
+        self.conn
+            .set_input_focus(InputFocus::POINTER_ROOT, win, x11rb::CURRENT_TIME)?;
+
+        let values = ChangeWindowAttributesAux::default().border_pixel(0xbd93f9);
+        self.conn.change_window_attributes(win, &values)?;
+        self.conn.flush()?;
+        Ok(())
+    }
+
+    fn close_window(&self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
+        // Construimos el evento de mensaje
+        // Los datos debe ir en un array de 5 elementos de 32 bits (u32)
+        let data = [self.atom_wm_delete_window, 0, 0, 0, 0];
+
+        let event = ClientMessageEvent {
+            response_type: CLIENT_MESSAGE_EVENT,
+            format: 32,
+            sequence: 0,
+            window: win,
+            type_: self.atom_wm_protocols,
+            data: ClientMessageData::from(data),
+        };
+
+        // Enviamos el evento directamente a la ventana del cliente
+        self.conn
+            .send_event(false, win, EventMask::NO_EVENT, event)?;
+        self.conn.flush()?;
+
+        println!("Envio WM_DELETE_WINDOW para la ventana: {:?}", win);
+        Ok(())
+    }
+
+    fn handle_key_press(&mut self, e: KeyPressEvent) -> Result<(), Box<dyn std::error::Error>> {
+        // 1. Extraer los datos del evento
+        // e.state son los modificadores (Mod4, Shift, etc.)
+        // e.detail es el Keycode físico
+        let state = e.state;
+        let code = e.detail;
+
+        // 2. Buscar la accion en nuestro HashMap
+        if let Some(action) = self.key_map.get(&(state.into(), code)) {
+            match action {
+                Action::Spawn(cmd) => {
+                    self.execute_spawn(cmd)?;
+                }
+                Action::Swap(dir) => {
+                    if let Err(e) = self.handle_swap(*dir) {
+                        eprintln!(
+                            "Error cuando se quiere cambiar de posicion la ventana {:?}",
+                            e
+                        );
+                    }
+                }
+                Action::KillClient => {
+                    let focused_win = {
+                        let ws = &self.workspaces[self.current_workspace];
+                        ws.stack.focused
+                    };
+
+                    if focused_win != 0 {
+                        //Intentamos el cierre elegante
+                        if let Err(e) = self.close_window(focused_win) {
+                            eprintln!("Error al intentar cerrar la ventana: {}", e);
+                        }
+                    }
+                }
+                Action::MoveFocus(dir) => {
+                    if let Err(e) = self.handle_move_focus(*dir) {
+                        eprintln!("Error al mover el foco: {}", e)
+                    }
+                }
+                Action::GoToWorkspace(idx) => {
+                    //self.switch_workspace(idx);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn handle_map_request(&mut self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
         /* 1. Añadir al stack del workspace actual
         self.workspaces[self.current_workspace].stack.add(win);
@@ -398,81 +484,15 @@ impl<C: Connection> Rustile<C> {
         Ok(())
     }
 
-    fn set_focus(&self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
-        if win == 0 {
-            return Ok(());
+    fn handle_swap(&mut self, direction: i32) -> Result<(), Box<dyn std::error::Error>> {
+        {
+            let ws = &mut self.workspaces[self.current_workspace];
+            ws.stack.swap_focus(direction);
         }
 
-        // Reclamar el foco de entrada para nuestro WM
-        self.conn
-            .set_input_focus(InputFocus::POINTER_ROOT, win, x11rb::CURRENT_TIME)?;
-
-        let values = ChangeWindowAttributesAux::default().border_pixel(0xbd93f9);
-        self.conn.change_window_attributes(win, &values)?;
+        // Al cambiar el orden en el vector, el layout cambia
+        self.apply_layout()?;
         self.conn.flush()?;
-        Ok(())
-    }
-
-    fn close_window(&self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
-        // Construimos el evento de mensaje
-        // Los datos debe ir en un array de 5 elementos de 32 bits (u32)
-        let data = [self.atom_wm_delete_window, 0, 0, 0, 0];
-
-        let event = ClientMessageEvent {
-            response_type: CLIENT_MESSAGE_EVENT,
-            format: 32,
-            sequence: 0,
-            window: win,
-            type_: self.atom_wm_protocols,
-            data: ClientMessageData::from(data),
-        };
-
-        // Enviamos el evento directamente a la ventana del cliente
-        self.conn
-            .send_event(false, win, EventMask::NO_EVENT, event)?;
-        self.conn.flush()?;
-
-        println!("Envio WM_DELETE_WINDOW para la ventana: {:?}", win);
-        Ok(())
-    }
-
-    fn handle_key_press(&mut self, e: KeyPressEvent) -> Result<(), Box<dyn std::error::Error>> {
-        // 1. Extraer los datos del evento
-        // e.state son los modificadores (Mod4, Shift, etc.)
-        // e.detail es el Keycode físico
-        let state = e.state;
-        let code = e.detail;
-
-        // 2. Buscar la accion en nuestro HashMap
-        if let Some(action) = self.key_map.get(&(state.into(), code)) {
-            match action {
-                Action::Spawn(cmd) => {
-                    self.execute_spawn(cmd)?;
-                }
-                Action::KillClient => {
-                    let focused_win = {
-                        let ws = &self.workspaces[self.current_workspace];
-                        ws.stack.focused
-                    };
-
-                    if focused_win != 0 {
-                        //Intentamos el cierre elegante
-                        if let Err(e) = self.close_window(focused_win) {
-                            eprintln!("Error al intentar cerrar la ventana: {}", e);
-                        }
-                    }
-                }
-                Action::MoveFocus(dir) => {
-                    if let Err(e) = self.handle_move_focus(*dir) {
-                        eprintln!("Error al mover el foco: {}", e)
-                    }
-                }
-                Action::GoToWorkspace(idx) => {
-                    //self.switch_workspace(idx);
-                }
-            }
-        }
-
         Ok(())
     }
 }
