@@ -1,13 +1,13 @@
 [package]
 name = "rustile"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 description = "This is a Window Tiling Manager with Rust on x11 for now"
 license = "MIT"
 
 [dependencies]
 #Comunicacion con el servidor X 
-x11rb = { version = "0.13", features = ["all-extensions", "cursor"]}
+x11rb = { version = "0.13", features = ["all-extensions", "cursor"] }
 
 #Para manejo de errores limpio
 thiserror = "1.0"
