@@ -1,6 +1,6 @@
-use rustile::{Rustile, core::Action, core::KeyBinding, mods};
+use rustile::{core::Action, core::KeyBinding, mods, rustile::Rustile};
 use x11rb::connect;
-use xkeysym::{Keysym, key};
+use xkeysym::Keysym;
 
 fn main() {
     // 1. Conexion al servidor X 11
