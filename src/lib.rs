@@ -63,20 +63,22 @@ impl<C: Connection> Rustile<C> {
                 }
 
                 Event::UnmapNotify(e) => {
-                    // Eliminar la ventana del stack
-                    let ws = &mut self.workspaces[self.current_workspace];
-
-                    if ws.stack.clients.contains(&e.window) {
+                    {
+                        // Eliminar la ventana del stack
+                        let ws = &mut self.workspaces[self.current_workspace];
                         ws.stack.clients.retain(|&id| id != e.window);
 
                         // Si era la que tenia el foco, pasar el foco a la siguiente
                         if ws.stack.focused == e.window {
-                            if let Some(&next) = ws.stack.clients.last() {
-                                self.set_focus(next)?;
-                            }
+                            ws.stack.focused = ws.stack.clients.last().copied().unwrap_or(0);
                         }
+                    }
 
-                        self.apply_layout()?;
+                    self.apply_layout()?;
+
+                    let focused_win = self.workspaces[self.current_workspace].stack.focused;
+                    if focused_win != 0 {
+                        self.set_focus(focused_win)?;
                     }
                 }
 
