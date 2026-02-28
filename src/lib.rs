@@ -27,10 +27,26 @@ pub struct Rustile<C: Connection> {
     workspaces: Vec<Workspace>,
     current_workspace: usize,
     key_map: HashMap<(u16, u8), Action>,
+    atom_wm_protocols: Atom,
+    atom_wm_delete_window: Atom,
 }
 
 impl<C: Connection> Rustile<C> {
     pub fn new(conn: C, screen_num: usize) -> Self {
+        let wm_protocols = conn
+            .intern_atom(false, b"WM_PROTOCOLS")
+            .unwrap()
+            .reply()
+            .unwrap()
+            .atom;
+
+        let wm_delete_window = conn
+            .intern_atom(false, b"WM_DELETE_WINDOW")
+            .unwrap()
+            .reply()
+            .unwrap()
+            .atom;
+
         Self {
             conn,
             screen_num,
@@ -43,6 +59,8 @@ impl<C: Connection> Rustile<C> {
             }],
             current_workspace: 0,
             key_map: HashMap::new(),
+            atom_wm_protocols: wm_protocols,
+            atom_wm_delete_window: wm_delete_window,
         }
     }
 
@@ -130,27 +148,6 @@ impl<C: Connection> Rustile<C> {
             self.conn.flush().ok();
         }
     }
-
-    /*  pub fn grab_keys(&self, bindings: &[KeyBinding]) -> Result<(), Box<dyn std::error::Error>>{
-          let screen = &self.conn.setup().roots[self.screen_num];
-
-          for b in bindings{
-              //Convertimos el nombre de la tecla (ej. "Return") a un codigo de X11
-              // Por ahora simplificado, pero qui usariamos xkbcommon
-              //let code = self.get_keycode_from_name(&b.key);
-
-              self.conn.grab_key(
-     false,                           //  owner_events
-      screen.root,                     //  Ventana donde escuchar
-                  (b.modifiers as u16).into(),     //  modificadores (Mod4, etc)
-              code,                            //  el codigo de la tecla
-     GrabMode::ASYNC,                 //  puntero
-    GrabMode::ASYNC)?;               //  teclado
-          }
-
-          self.conn.flush();
-          Ok(())
-      }*/
 
     fn execute_spawn(&self, cmd: &str) -> Result<(), Box<dyn std::error::Error>> {
         // Separamos el comando de los argumentos (ej: "firefox --private"-> "firefox", ["--private"] )
@@ -281,7 +278,7 @@ impl<C: Connection> Rustile<C> {
                     self.execute_spawn(cmd)?;
                 }
                 Action::KillClient => {
-                    let ws = &mut self.workspaces[self.current_workspace];
+                    /* let ws = &mut self.workspaces[self.current_workspace];
                     if let Some(win) = Some(ws.stack.focused).filter(|&id| id != 0) {
                         println!("Intentando cerrar ventana: {:?}", win);
 
@@ -303,6 +300,18 @@ impl<C: Connection> Rustile<C> {
                         //5.Recalcular el layour para llenar el vacio
                         self.apply_layout()?;
                         self.conn.flush();
+                    }*/
+
+                    let focused_win = {
+                        let ws = &self.workspaces[self.current_workspace];
+                        ws.stack.focused
+                    };
+
+                    if focused_win != 0 {
+                        //Intentamos el cierre elegante
+                        if let Err(e) = self.close_window(focused_win) {
+                            eprintln!("Error al intentar cerrar la ventana: {}", e);
+                        }
                     }
                 }
                 Action::MoveFocus(dir) => {
@@ -317,6 +326,29 @@ impl<C: Connection> Rustile<C> {
             }
         }
 
+        Ok(())
+    }
+
+    fn close_window(&self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
+        // Construimos el evento de mensaje
+        // Los datos debe ir en un array de 5 elementos de 32 bits (u32)
+        let data = [self.atom_wm_delete_window, 0, 0, 0, 0];
+
+        let event = ClientMessageEvent {
+            response_type: CLIENT_MESSAGE_EVENT,
+            format: 32,
+            sequence: 0,
+            window: win,
+            type_: self.atom_wm_protocols,
+            data: ClientMessageData::from(data),
+        };
+
+        // Enviamos el evento directamente a la ventana del cliente
+        self.conn
+            .send_event(false, win, EventMask::NO_EVENT, event)?;
+        self.conn.flush()?;
+
+        println!("Envio WM_DELETE_WINDOW para la ventana: {:?}", win);
         Ok(())
     }
 }
