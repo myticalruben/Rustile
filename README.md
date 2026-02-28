@@ -24,7 +24,7 @@ sudo apt install libx11-dev
 ```
 ```toml
 [dependencies]
-rustile = "0.1.0"
+rustile = "0.0.4"
 x11rb = { version = "0.13", traits = ["all"] }
 xkeysym = "0.2"
 ```
