@@ -4,6 +4,7 @@ version = "0.0.2"
 edition = "2024"
 description = "This is a Window Tiling Manager with Rust on x11 for now"
 license = "MIT"
+readme = "README.md"
 
 [dependencies]
 #Comunicacion con el servidor X 
