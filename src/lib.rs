@@ -360,6 +360,44 @@ impl<C: Connection> Rustile<C> {
         Ok(())
     }
 
+    fn handle_move_focus(&mut self, direction: i32) -> Result<(), Box<dyn std::error::Error>> {
+        let focused_color = 0xbd93f9;
+        let normal_color = 0x44475a;
+
+        // 1. Obtene el workspace actual
+        let ws = &mut self.workspaces[self.current_workspace];
+        if ws.stack.clients.len() < 2 {
+            return Ok(());
+        }
+
+        // 2. Guardar la ventana que va a perder el foco para limpiar su borde
+        let old_focus = ws.stack.focused;
+
+        // 3. Rotar el foco en el stack
+        ws.stack.rotate_focus(direction);
+        let new_focus = ws.stack.focused;
+
+        // 4. Actualizar bordes en X11
+        // Pintar la vieja de color normal
+        self.conn.change_window_attributes(
+            old_focus,
+            &ChangeWindowAttributesAux::default().border_pixel(normal_color),
+        )?;
+
+        // Pintar la nueva de color resaltado
+        self.conn.change_window_attributes(
+            new_focus,
+            &ChangeWindowAttributesAux::default().border_pixel(focused_color),
+        )?;
+
+        // 5. Mover el foco de entrada del teclado
+        self.conn
+            .set_input_focus(InputFocus::POINTER_ROOT, new_focus, x11rb::CURRENT_TIME)?;
+
+        self.conn.flush()?;
+        Ok(())
+    }
+
     fn set_focus(&self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
         if win == 0 {
             return Ok(());
@@ -367,7 +405,7 @@ impl<C: Connection> Rustile<C> {
 
         // Reclamar el foco de entrada para nuestro WM
         self.conn
-            .set_input_focus(InputFocus::POINTER_ROOT, win, x11rb::CURRENT_TIME);
+            .set_input_focus(InputFocus::POINTER_ROOT, win, x11rb::CURRENT_TIME)?;
 
         let values = ChangeWindowAttributesAux::default().border_pixel(0xbd93f9);
         self.conn.change_window_attributes(win, &values)?;
@@ -425,10 +463,9 @@ impl<C: Connection> Rustile<C> {
                     }
                 }
                 Action::MoveFocus(dir) => {
-                    let ws = &mut self.workspaces[self.current_workspace];
-                    /*  ws.stack.rotate_focus(*dir);
-                    let new_focus = ws.stack.focused;
-                    self.set_focus(new_focus)?;*/
+                    if let Err(e) = self.handle_move_focus(*dir) {
+                        eprintln!("Error al mover el foco: {}", e)
+                    }
                 }
                 Action::GoToWorkspace(idx) => {
                     //self.switch_workspace(idx);

@@ -26,7 +26,7 @@ pub struct Workspace {
 pub enum Action {
     Spawn(String),        //Lanzar un comando (ej. alacritty)
     KillClient,           // Cerrar ventana actual
-    MoveFocus(i16),       // Cambiar de ventana
+    MoveFocus(i32),       // Cambiar de ventana
     GoToWorkspace(usize), // Cambiar de workspace
 }
 
@@ -40,6 +40,25 @@ impl Stack {
     pub fn add(&mut self, win: WindowId) {
         self.clients.push(win);
         self.focused = win;
+    }
+
+    pub fn rotate_focus(&mut self, direction: i32) {
+        if self.clients.is_empty() {
+            return;
+        }
+
+        // 1. Encontrar posicion actual
+        let current_pos = self
+            .clients
+            .iter()
+            .position(|&id| id == self.focused)
+            .unwrap_or(0);
+
+        let len = self.clients.len() as i32;
+        let next_pos = (current_pos as i32 + direction).rem_euclid(len) as usize;
+
+        //3. Actualizar el ID enfocado
+        self.focused = self.clients[next_pos];
     }
 }
 

@@ -27,6 +27,16 @@ fn main() {
             key: Keysym::q,
             action: Action::KillClient,
         },
+        KeyBinding {
+            modifiers: mods::ALT,
+            key: Keysym::h,
+            action: Action::MoveFocus(-1),
+        },
+        KeyBinding {
+            modifiers: mods::ALT,
+            key: Keysym::l,
+            action: Action::MoveFocus(1),
+        },
     ];
 
     wm.setup_keybindings(test);
