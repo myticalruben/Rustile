@@ -29,6 +29,11 @@ pub struct Rustile<C: Connection> {
     key_map: HashMap<(u16, u8), Action>,
     atom_wm_protocols: Atom,
     atom_wm_delete_window: Atom,
+    atom_wm_type: Atom,
+    atom_wm_type_dialog: Atom,
+    atom_wm_type_utility: Atom,
+    atom_wm_type_toolbar: Atom,
+    atom_wm_type_splash: Atom,
 }
 
 impl<C: Connection> Rustile<C> {
@@ -42,6 +47,41 @@ impl<C: Connection> Rustile<C> {
 
         let wm_delete_window = conn
             .intern_atom(false, b"WM_DELETE_WINDOW")
+            .unwrap()
+            .reply()
+            .unwrap()
+            .atom;
+
+        let atom_wm_type = conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE")
+            .unwrap()
+            .reply()
+            .unwrap()
+            .atom;
+
+        let atom_wm_type_dialog = conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_DIALOG")
+            .unwrap()
+            .reply()
+            .unwrap()
+            .atom;
+
+        let atom_wm_type_utility = conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_UTILITY")
+            .unwrap()
+            .reply()
+            .unwrap()
+            .atom;
+
+        let atom_wm_type_toolbar = conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_TOOLBAR")
+            .unwrap()
+            .reply()
+            .unwrap()
+            .atom;
+
+        let atom_wm_type_splash = conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_SPLASH")
             .unwrap()
             .reply()
             .unwrap()
@@ -61,6 +101,11 @@ impl<C: Connection> Rustile<C> {
             key_map: HashMap::new(),
             atom_wm_protocols: wm_protocols,
             atom_wm_delete_window: wm_delete_window,
+            atom_wm_type,
+            atom_wm_type_dialog,
+            atom_wm_type_utility,
+            atom_wm_type_toolbar,
+            atom_wm_type_splash,
         }
     }
 
@@ -171,6 +216,31 @@ impl<C: Connection> Rustile<C> {
         Ok(())
     }
 
+    fn should_float(&self, win: WindowId) -> bool {
+        let cookie = self
+            .conn
+            .get_property(false, win, self.atom_wm_type, AtomEnum::ATOM, 0, 1024);
+
+        if let Ok(reply) = cookie.and_then(|c| Ok(c.reply().map_err(|e| e))) {
+            let types: Vec<u32> = reply
+                .unwrap()
+                .value32()
+                .map(|it| it.collect())
+                .unwrap_or_default();
+
+            for t in types {
+                if t == self.atom_wm_type_dialog
+                    || t == self.atom_wm_type_utility
+                    || t == self.atom_wm_type_splash
+                {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     fn get_keycode_from_keysym(&self, sym: Keysym) -> u8 {
         let setup = self.conn.setup();
         let min = setup.min_keycode;
@@ -231,7 +301,7 @@ impl<C: Connection> Rustile<C> {
     }
 
     fn handle_map_request(&mut self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
-        // 1. Añadir al stack del workspace actual
+        /* 1. Añadir al stack del workspace actual
         self.workspaces[self.current_workspace].stack.add(win);
 
         // 2. Escuchar si la ventana se destruye o se mueve
@@ -246,6 +316,47 @@ impl<C: Connection> Rustile<C> {
         self.apply_layout()?;
 
         println!("Ventana añadida al stack: {:?}", win);
+        Ok(())*/
+
+        if self.should_float(win) {
+            // --Logica de ventana flontante--
+            // La centramos en la pantalla y no la agremamos al stack del Layout
+            let screen = &self.conn.setup().roots[self.screen_num];
+            let width = 600;
+            let height = 400;
+            let x = (screen.width_in_pixels as u32 - width) / 2;
+            let y = (screen.height_in_pixels as u32 - height) / 2;
+
+            let values = ConfigureWindowAux::default()
+                .x(x as i32)
+                .y(y as i32)
+                .width(width)
+                .height(height)
+                .border_width(2);
+
+            self.conn.configure_window(win, &values)?;
+        } else {
+            // --- Logica de Tiling (lo que ya tenias) ---
+            //1. Añadir al stack del workspace actual
+            self.workspaces[self.current_workspace].stack.add(win);
+
+            // 2. Escuchar si la ventana se destruye o se mueve
+            let attrs = ChangeWindowAttributesAux::default()
+                .event_mask(EventMask::ENTER_WINDOW | EventMask::STRUCTURE_NOTIFY);
+            self.conn.change_window_attributes(win, &attrs)?;
+
+            // 3. Mapear (mostrar) la ventana
+            self.conn.map_window(win)?;
+
+            // 4. Recalcular posiciones de TODAS las ventanas
+            self.apply_layout()?;
+            println!("Ventana añadida al stack: {:?}", win);
+        }
+
+        self.conn.map_window(win)?;
+        self.set_focus(win)?;
+        self.conn.flush()?;
+
         Ok(())
     }
 
@@ -264,6 +375,29 @@ impl<C: Connection> Rustile<C> {
         Ok(())
     }
 
+    fn close_window(&self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
+        // Construimos el evento de mensaje
+        // Los datos debe ir en un array de 5 elementos de 32 bits (u32)
+        let data = [self.atom_wm_delete_window, 0, 0, 0, 0];
+
+        let event = ClientMessageEvent {
+            response_type: CLIENT_MESSAGE_EVENT,
+            format: 32,
+            sequence: 0,
+            window: win,
+            type_: self.atom_wm_protocols,
+            data: ClientMessageData::from(data),
+        };
+
+        // Enviamos el evento directamente a la ventana del cliente
+        self.conn
+            .send_event(false, win, EventMask::NO_EVENT, event)?;
+        self.conn.flush()?;
+
+        println!("Envio WM_DELETE_WINDOW para la ventana: {:?}", win);
+        Ok(())
+    }
+
     fn handle_key_press(&mut self, e: KeyPressEvent) -> Result<(), Box<dyn std::error::Error>> {
         // 1. Extraer los datos del evento
         // e.state son los modificadores (Mod4, Shift, etc.)
@@ -278,30 +412,6 @@ impl<C: Connection> Rustile<C> {
                     self.execute_spawn(cmd)?;
                 }
                 Action::KillClient => {
-                    /* let ws = &mut self.workspaces[self.current_workspace];
-                    if let Some(win) = Some(ws.stack.focused).filter(|&id| id != 0) {
-                        println!("Intentando cerrar ventana: {:?}", win);
-
-                        //3. intentamos matar el cliente de forma limpia
-                        //Si usamos x11rb, esto cierra la conexion del cliente con el servidor
-                        self.conn.kill_client(win)?;
-
-                        //4. IMPORTANTE: eliminarla de nuestro Stack local inmediatamente
-                        ws.stack.clients.retain(|&id| id != win);
-
-                        //5. Resetear el foco a la ventana anterior si queda alguna
-                        if let Some(&next_win) = ws.stack.clients.last() {
-                            ws.stack.focused = next_win;
-                            self.set_focus(next_win)?;
-                        } else {
-                            ws.stack.focused = 0;
-                        }
-
-                        //5.Recalcular el layour para llenar el vacio
-                        self.apply_layout()?;
-                        self.conn.flush();
-                    }*/
-
                     let focused_win = {
                         let ws = &self.workspaces[self.current_workspace];
                         ws.stack.focused
@@ -326,29 +436,6 @@ impl<C: Connection> Rustile<C> {
             }
         }
 
-        Ok(())
-    }
-
-    fn close_window(&self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
-        // Construimos el evento de mensaje
-        // Los datos debe ir en un array de 5 elementos de 32 bits (u32)
-        let data = [self.atom_wm_delete_window, 0, 0, 0, 0];
-
-        let event = ClientMessageEvent {
-            response_type: CLIENT_MESSAGE_EVENT,
-            format: 32,
-            sequence: 0,
-            window: win,
-            type_: self.atom_wm_protocols,
-            data: ClientMessageData::from(data),
-        };
-
-        // Enviamos el evento directamente a la ventana del cliente
-        self.conn
-            .send_event(false, win, EventMask::NO_EVENT, event)?;
-        self.conn.flush()?;
-
-        println!("Envio WM_DELETE_WINDOW para la ventana: {:?}", win);
         Ok(())
     }
 }
