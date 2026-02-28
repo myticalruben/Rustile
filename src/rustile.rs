@@ -294,17 +294,6 @@ impl<C: Connection> Rustile<C> {
     }
 
     fn set_focus(&mut self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
-        /*  if win == 0 {
-            return Ok(());
-        }
-
-        // Reclamar el foco de entrada para nuestro WM
-        self.conn
-            .set_input_focus(InputFocus::POINTER_ROOT, win, x11rb::CURRENT_TIME)?;
-
-        let values = ChangeWindowAttributesAux::default().border_pixel(0xbd93f9);
-        self.conn.change_window_attributes(win, &values)?;
-        self.conn.flush()?;*/
         let ws = &mut self.workspaces[self.current_workspace];
 
         // Guardamos el antiguo para quitarle el brillo
@@ -496,13 +485,15 @@ impl<C: Connection> Rustile<C> {
 
     fn handle_swap(&mut self, direction: i32) -> Result<(), Box<dyn std::error::Error>> {
         {
+            //Modificamos el stack del workspace actual
             let ws = &mut self.workspaces[self.current_workspace];
-            ws.stack.swap_focus(direction);
+            ws.stack.swap(direction);
         }
 
-        // Al cambiar el orden en el vector, el layout cambia
+        // Al cambiar el orden en el vector, refrescamos la pantalla
         self.apply_layout()?;
-        self.conn.flush()?;
+
+        println!("Ventanas intercambiadas (direccion: {})", direction);
         Ok(())
     }
 

@@ -45,6 +45,22 @@ impl Stack {
         self.focused = win;
     }
 
+    pub fn swap(&mut self, direction: i32) {
+        let len = self.clients.len();
+        if len < 2 {
+            return;
+        }
+
+        //1. Buscamos el indice de la ventana que tiene el foco
+        if let Some(pos) = self.clients.iter().position(|&id| id == self.focused) {
+            //2. Calculamos el indice de destino con aritmetica modular
+            let target = (pos as i32 + direction).rem_euclid(len as i32) as usize;
+
+            //3. Intercambiamos las posiciones en el vector
+            self.clients.swap(pos, target);
+        }
+    }
+
     pub fn swap_focus(&mut self, direction: i32) {
         if self.clients.len() < 2 {
             return;
