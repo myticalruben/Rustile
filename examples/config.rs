@@ -1,6 +1,6 @@
 use rustile::{core::Action, core::KeyBinding, mods, rustile::Rustile};
 use x11rb::connect;
-use xkeysym::Keysym;
+use xkeysym::{Keysym, key};
 
 fn main() {
     // 1. Conexion al servidor X 11
@@ -13,7 +13,7 @@ fn main() {
 
     // 3. Definir combinaciones de prueba
     // Usamos las constantes nativos de xkeysym
-    let test = vec![
+    let mut test = vec![
         KeyBinding {
             modifiers: mods::ALT,
             key: Keysym::Return,
@@ -60,6 +60,17 @@ fn main() {
             action: Action::ChangeRatio(-0.05),
         },
     ];
+
+    for i in 0..9 {
+        let key_val = u32::from(Keysym::_1) + i;
+        let k = xkeysym::Keysym::from(key_val);
+
+        test.push(KeyBinding {
+            modifiers: mods::ALT,
+            key: k,
+            action: Action::GoToWorkspace(i as usize),
+        });
+    }
 
     wm.setup_keybindings(test);
 

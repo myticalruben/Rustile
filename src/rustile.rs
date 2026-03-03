@@ -157,18 +157,39 @@ impl<C: Connection> Rustile<C> {
         Ok(())
     }
 
-    /*/ pub fn set_border(&mut self, width: u32) -> u32 { }
+    // pub fn set_border(&mut self, width: u32) -> u32 { }
 
-    pub fn got_workspace(&mut self, index: usize) -> Result<(), std::error::Error> {
+    pub fn go_to_workspace(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
         if index == self.current_workspace || index >= self.workspaces.len() {
             return Ok(());
         }
 
+        //1. Ocultamos ventanas del workspace actual
         let old_ws = &self.workspaces[self.current_workspace];
         for &win in &old_ws.stack.clients {
             self.conn.unmap_window(win)?;
         }
-    }*/
+
+        //2. Cambiar el indice
+        self.current_workspace = index;
+
+        //3. Mostramos las ventanas del nuevo workspace
+        let new_ws = &self.workspaces[self.current_workspace];
+        for &win in &new_ws.stack.clients {
+            self.conn.map_window(win)?;
+        }
+
+        //4. Aplicamos el layour y damos el foco
+        self.apply_layout()?;
+
+        if let Some(&first) = new_ws.stack.clients.first() {
+            self.set_focus(first)?;
+        }
+
+        println!("cambiamos al workspace {}", self.current_workspace);
+        self.conn.flush();
+        Ok(())
+    }
 
     pub fn set_background_color(&self, color: u32) -> Result<(), Box<dyn std::error::Error>> {
         let screen = &self.conn.setup().roots[self.screen_num];
@@ -463,7 +484,7 @@ impl<C: Connection> Rustile<C> {
                     }
                 }
                 Action::GoToWorkspace(idx) => {
-                    //self.switch_workspace(idx);
+                    self.go_to_workspace(*idx);
                 }
                 Action::ChangeRatio(delta) => {
                     {
