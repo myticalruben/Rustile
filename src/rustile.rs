@@ -159,6 +159,52 @@ impl<C: Connection> Rustile<C> {
 
     // pub fn set_border(&mut self, width: u32) -> u32 { }
 
+    pub fn move_to_workspace(&mut self, target: usize) -> Result<(), Box<dyn std::error::Error>> {
+        let current = self.current_workspace;
+
+        //Si es el mismo workspace o el indice no existe, no hacemos nada
+        if target == current || target >= self.workspaces.len() {
+            return Ok(());
+        }
+
+        //1.Extraer la ventana enfocada del workspace actual
+
+        let focused_win = {
+            let current_ws = &mut self.workspaces[current];
+            if let Some(pos) = current_ws
+                .stack
+                .clients
+                .iter()
+                .position(|&id| id == current_ws.stack.focused)
+            {
+                let id = current_ws.stack.clients.remove(pos);
+
+                //Actualizamos el foco del workspace viejo (a la ventana que quedo)
+                current_ws.stack.focused == current_ws.stack.clients.first().copied().unwrap_or(0);
+                Some(id)
+            } else {
+                None
+            }
+        };
+
+        //2. Si habia una ventana enfocada, la mandamos al nuevo workspace
+        if let Some(win) = focused_win {
+            let target_ws = &mut self.workspaces[target];
+            target_ws.stack.clients.push(win);
+            target_ws.stack.focused = win; // La ventana movida mantiene el foco alli
+
+            //3. IMPORTANTE: Como la ventana "se fue" a otro escritorio, debemos ocultarla (unmap)
+            self.conn.unmap_window(win)?;
+
+            //4. Refrescamos el layout del escritorio actual para que las que se quedaron ocupen el
+            //   espacio vacio
+            self.apply_layout()?;
+        }
+
+        self.conn.flush()?;
+        Ok(())
+    }
+
     pub fn go_to_workspace(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
         if index == self.current_workspace || index >= self.workspaces.len() {
             return Ok(());
@@ -485,6 +531,9 @@ impl<C: Connection> Rustile<C> {
                 }
                 Action::GoToWorkspace(idx) => {
                     self.go_to_workspace(*idx);
+                }
+                Action::MoveToWorkspace(idx) => {
+                    self.move_to_workspace(*idx);
                 }
                 Action::ChangeRatio(delta) => {
                     {

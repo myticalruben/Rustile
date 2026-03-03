@@ -70,6 +70,11 @@ fn main() {
             key: k,
             action: Action::GoToWorkspace(i as usize),
         });
+        test.push(KeyBinding {
+            modifiers: mods::ALT | mods::SHIFT,
+            key: k,
+            action: Action::MoveToWorkspace(i as usize),
+        });
     }
 
     wm.setup_keybindings(test);

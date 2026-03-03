@@ -38,8 +38,9 @@ pub enum Action {
     Swap(i32),
     KillClient, // Cerrar ventana actual
     ChangeRatio(f32),
-    MoveFocus(i32),       // Cambiar de ventana
-    GoToWorkspace(usize), // Cambiar de workspace
+    MoveFocus(i32),         // Cambiar de ventana
+    GoToWorkspace(usize),   // Cambiar de workspace
+    MoveToWorkspace(usize), // Cambiar de workspace
 }
 
 pub struct KeyBinding {
