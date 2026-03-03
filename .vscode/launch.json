@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug Rustile en Xephyr",
+            "cargo": {
+                "args": ["run", "--example", "config"]
+            },
+            "env": {
+                "DISPLAY": ":1" // Apunta a la pantalla de Xephyr
+            },
+            "preLaunchTask": "Lanzar Xephyr", // Ejecuta la tarea del paso 1
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

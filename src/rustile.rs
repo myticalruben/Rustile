@@ -6,7 +6,7 @@ use x11rb::protocol::{Event, xproto::*};
 
 use xkeysym::Keysym;
 
-use crate::core::{Action, KeyBinding, Stack, WindowId, Workspace};
+use crate::core::{Action, KeyBinding, Layout, Stack, WindowId, Workspace};
 
 const COLOR_FOCUS: u32 = 0xbd93f9;
 const COLOR_NORMAL: u32 = 0x44475a;
@@ -78,16 +78,16 @@ impl<C: Connection> Rustile<C> {
             .unwrap()
             .atom;
 
+        let mut workspaces = Vec::new();
+
+        for i in 1..=9 {
+            workspaces.push(Workspace::new(i, &i.to_string()));
+        }
+
         Self {
             conn,
             screen_num,
-            workspaces: vec![Workspace {
-                name: "1".to_string(),
-                stack: Stack {
-                    focused: 1,
-                    clients: vec![1],
-                },
-            }],
+            workspaces,
             current_workspace: 0,
             key_map: HashMap::new(),
             atom_wm_protocols: wm_protocols,
@@ -154,6 +154,35 @@ impl<C: Connection> Rustile<C> {
         change_window_attributes(&self.conn, screen.root, &values)?;
 
         self.conn.flush()?;
+        Ok(())
+    }
+
+    /*/ pub fn set_border(&mut self, width: u32) -> u32 { }
+
+    pub fn got_workspace(&mut self, index: usize) -> Result<(), std::error::Error> {
+        if index == self.current_workspace || index >= self.workspaces.len() {
+            return Ok(());
+        }
+
+        let old_ws = &self.workspaces[self.current_workspace];
+        for &win in &old_ws.stack.clients {
+            self.conn.unmap_window(win)?;
+        }
+    }*/
+
+    pub fn set_background_color(&self, color: u32) -> Result<(), Box<dyn std::error::Error>> {
+        let screen = &self.conn.setup().roots[self.screen_num];
+        let root = screen.root;
+
+        // Cambiamos el atributo 'back_pixel' de la ventana raíz
+        let values = ChangeWindowAttributesAux::default().background_pixel(color);
+
+        self.conn.change_window_attributes(root, &values)?;
+
+        // Es necesario limpiar la ventana para que el color se aplique
+        self.conn.clear_area(false, root, 0, 0, 0, 0)?;
+        self.conn.flush()?;
+
         Ok(())
     }
 
@@ -262,31 +291,88 @@ impl<C: Connection> Rustile<C> {
         panic!("El servidor X no tiene un Keycode asignado para el Keysym")
     }
 
+    fn resize_client(
+        &self,
+        win: WindowId,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        //IMPORTANTE: Restamos el doble del borde para que el tamano total
+        //(ventana + bordes) cincida con el espacio del layout.
+        let border_width = BORDER_WIDTH;
+
+        //Evitamos valores negativos o cero que puedan causar errores en X11
+        let width = if w > 2 * border_width {
+            w - 2 * border_width
+        } else {
+            1
+        };
+
+        let height = if h > 2 * border_width {
+            h - 2 * border_width
+        } else {
+            1
+        };
+
+        let values = ConfigureWindowAux::default()
+            .x(x as i32)
+            .y(y as i32)
+            .width(width)
+            .height(height)
+            .border_width(border_width);
+
+        self.conn.configure_window(win, &values)?;
+        self.conn.flush()?;
+
+        Ok(())
+    }
+
     fn apply_layout(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let screen = &self.conn.setup().roots[self.screen_num];
         let ws = &self.workspaces[self.current_workspace];
-        let focused_win = &ws.stack.focused;
+        let screen = &self.conn.setup().roots[self.screen_num];
         let n = ws.stack.clients.len();
 
+        // 1. Si no hay ventanas, no hacemos nada
         if n == 0 {
             return Ok(());
         }
 
-        // Layout de Columnas Simple:
-        let width_per_window = screen.width_in_pixels as u32 / n as u32;
-        let height = screen.height_in_pixels as u32;
+        // 2. CASO ESPECIAL: Una sola ventana
+        if n == 1 {
+            let win = ws.stack.clients[0];
+            // Forzamos 0,0 y el ancho/alto TOTAL de la pantalla
+            self.resize_client(
+                win,
+                0,
+                0,
+                screen.width_in_pixels as u32,
+                screen.height_in_pixels as u32,
+            )?;
+        }
+        // 3. CASO: Varias ventanas (Master/Stack)
+        else {
+            let master_width = (screen.width_in_pixels as f32 * ws.layout.ratio) as u32;
+            let stack_width = screen.width_in_pixels as u32 - master_width;
 
-        for (i, &win) in ws.stack.clients.iter().enumerate() {
-            let x = i as u32 * width_per_window;
+            // La primera ventana SIEMPRE empieza en x=0
+            self.resize_client(
+                ws.stack.clients[0],
+                0,
+                0,
+                master_width,
+                screen.height_in_pixels as u32,
+            )?;
 
-            let values = ConfigureWindowAux::default()
-                .x(x as i32)
-                .y(0)
-                .width(width_per_window)
-                .height(height);
+            let stack_count = n - 1;
+            let stack_height = screen.height_in_pixels as u32 / stack_count as u32;
 
-            self.conn.configure_window(win, &values)?;
-            self.apply_border(win, win == *focused_win)?;
+            for (i, &win) in ws.stack.clients.iter().skip(1).enumerate() {
+                let y = i as u32 * stack_height;
+                // Las del stack empiezan donde termina el master (x = master_width)
+                self.resize_client(win, master_width, y, stack_width, stack_height)?;
+            }
         }
 
         self.conn.flush()?;
@@ -378,6 +464,14 @@ impl<C: Connection> Rustile<C> {
                 }
                 Action::GoToWorkspace(idx) => {
                     //self.switch_workspace(idx);
+                }
+                Action::ChangeRatio(delta) => {
+                    {
+                        let ws = &mut self.workspaces[self.current_workspace];
+                        ws.layout.change_ratio(*delta);
+                    }
+
+                    self.apply_layout()?;
                 }
             }
         }
@@ -516,6 +610,7 @@ impl<C: Connection> Rustile<C> {
         let attr_values = ChangeWindowAttributesAux::default().border_pixel(color);
         self.conn.change_window_attributes(win, &attr_values)?;
 
+        self.conn.flush()?;
         Ok(())
     }
 }

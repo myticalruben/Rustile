@@ -13,6 +13,11 @@ pub struct Rect {
 }
 
 #[derive(Debug)]
+pub struct Layout {
+    pub ratio: f32,
+}
+
+#[derive(Debug)]
 pub struct Stack {
     pub focused: WindowId,
     pub clients: Vec<WindowId>,
@@ -20,15 +25,18 @@ pub struct Stack {
 
 #[derive(Debug)]
 pub struct Workspace {
+    pub id: u32,
     pub name: String,
     pub stack: Stack,
+    pub layout: Layout,
 }
 
 #[derive(Debug, Clone)]
 pub enum Action {
     Spawn(String), //Lanzar un comando (ej. alacritty)
     Swap(i32),
-    KillClient,           // Cerrar ventana actual
+    KillClient, // Cerrar ventana actual
+    ChangeRatio(f32),
     MoveFocus(i32),       // Cambiar de ventana
     GoToWorkspace(usize), // Cambiar de workspace
 }
@@ -39,7 +47,36 @@ pub struct KeyBinding {
     pub action: Action,
 }
 
+impl Workspace {
+    pub fn new(id: u32, name: &str) -> Self {
+        Self {
+            id,
+            name: name.to_string(),
+            stack: Stack::new(),
+            layout: Layout::new(),
+        }
+    }
+}
+
+impl Layout {
+    pub fn new() -> Self {
+        Self { ratio: 0.5 } //Empezamos al 50/50
+    }
+
+    pub fn change_ratio(&mut self, delta: f32) {
+        //Limitamos el ratio para que ninguna columna desaparezca
+        self.ratio = (self.ratio + delta).clamp(0.1, 0.9);
+    }
+}
+
 impl Stack {
+    pub fn new() -> Self {
+        Self {
+            focused: 0,
+            clients: Vec::new(),
+        }
+    }
+
     pub fn add(&mut self, win: WindowId) {
         self.clients.push(win);
         self.focused = win;

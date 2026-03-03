@@ -8,6 +8,8 @@ fn main() {
 
     // 2. Iniciar el WM
     let mut wm = Rustile::new(conn, screen_num);
+    let color: u32 = 0xffff25;
+    let _ = wm.set_background_color(color);
 
     // 3. Definir combinaciones de prueba
     // Usamos las constantes nativos de xkeysym
@@ -46,6 +48,16 @@ fn main() {
             modifiers: mods::ALT | mods::SHIFT,
             key: Keysym::l,
             action: Action::Swap(1),
+        },
+        KeyBinding {
+            modifiers: mods::ALT | mods::CONTROL,
+            key: Keysym::h,
+            action: Action::ChangeRatio(0.05),
+        },
+        KeyBinding {
+            modifiers: mods::ALT | mods::CONTROL,
+            key: Keysym::l,
+            action: Action::ChangeRatio(-0.05),
         },
     ];
 
