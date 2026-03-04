@@ -1,7 +1,6 @@
 use std::usize;
 
-use x11rb::protocol::xkb::Key;
-use xkeysym::{Keysym, key};
+use xkeysym::Keysym;
 
 pub type WindowId = u32;
 

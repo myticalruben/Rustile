@@ -6,11 +6,12 @@ use x11rb::protocol::{Event, xproto::*};
 
 use xkeysym::Keysym;
 
-use crate::core::{Action, KeyBinding, Layout, Stack, WindowId, Workspace};
+use crate::core::{Action, KeyBinding, WindowId, Workspace};
 
 const COLOR_FOCUS: u32 = 0xbd93f9;
 const COLOR_NORMAL: u32 = 0x44475a;
 const BORDER_WIDTH: u32 = 2;
+const GAP_SIZE: u32 = 10;
 
 pub struct Rustile<C: Connection> {
     conn: C,
@@ -401,6 +402,10 @@ impl<C: Connection> Rustile<C> {
         let screen = &self.conn.setup().roots[self.screen_num];
         let n = ws.stack.clients.len();
 
+        let sw = screen.width_in_pixels as u32;
+        let sh = screen.height_in_pixels as u32;
+        let g = GAP_SIZE;
+
         // 1. Si no hay ventanas, no hacemos nada
         if n == 0 {
             return Ok(());
@@ -410,35 +415,35 @@ impl<C: Connection> Rustile<C> {
         if n == 1 {
             let win = ws.stack.clients[0];
             // Forzamos 0,0 y el ancho/alto TOTAL de la pantalla
-            self.resize_client(
-                win,
-                0,
-                0,
-                screen.width_in_pixels as u32,
-                screen.height_in_pixels as u32,
-            )?;
+            self.resize_client(win, g, g, sw - 2 * g, sh - 2 * g)?;
         }
         // 3. CASO: Varias ventanas (Master/Stack)
         else {
-            let master_width = (screen.width_in_pixels as f32 * ws.layout.ratio) as u32;
-            let stack_width = screen.width_in_pixels as u32 - master_width;
+            let master_width = (sw as f32 * ws.layout.ratio) as u32;
+            let stack_width = sw - master_width;
 
             // La primera ventana SIEMPRE empieza en x=0
             self.resize_client(
                 ws.stack.clients[0],
-                0,
-                0,
-                master_width,
-                screen.height_in_pixels as u32,
+                g,
+                g,
+                master_width - (g + g / 2), //Deja espacio a la deracha para el stack
+                sh - 2 * g,
             )?;
 
             let stack_count = n - 1;
-            let stack_height = screen.height_in_pixels as u32 / stack_count as u32;
+            let stack_height = sh / stack_count as u32;
 
             for (i, &win) in ws.stack.clients.iter().skip(1).enumerate() {
                 let y = i as u32 * stack_height;
                 // Las del stack empiezan donde termina el master (x = master_width)
-                self.resize_client(win, master_width, y, stack_width, stack_height)?;
+                self.resize_client(
+                    win,
+                    master_width + g / 2,
+                    y + g,
+                    stack_width - (g + g / 2),
+                    stack_height - 2 * g,
+                )?;
             }
         }
 
