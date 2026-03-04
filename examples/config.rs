@@ -1,15 +1,27 @@
-use rustile::{core::Action, core::KeyBinding, mods, rustile::Rustile};
+use rustile::{
+    core::{Action, KeyBinding, RustileConfig},
+    mods,
+    rustile::Rustile,
+};
 use x11rb::connect;
-use xkeysym::{Keysym, key};
+use xkeysym::Keysym;
 
 fn main() {
     // 1. Conexion al servidor X 11
     let (conn, screen_num) = connect(None).expect("No se pudo conectar a X11");
 
-    // 2. Iniciar el WM
+    // 2. Estableceemos las configuraciones iniciales
     let mut wm = Rustile::new(conn, screen_num);
-    let color: u32 = 0xffff25;
-    let _ = wm.set_background_color(color);
+
+    let config = RustileConfig {
+        border_width: 2,
+        color_normal: 0xbffffff,
+        color_focus: 0xbf33f22,
+        gap_size: 4,
+    };
+
+    wm.set_background_color(0xffff25).unwrap();
+    wm.set_config(config);
 
     // 3. Definir combinaciones de prueba
     // Usamos las constantes nativos de xkeysym
@@ -42,12 +54,12 @@ fn main() {
         KeyBinding {
             modifiers: mods::ALT | mods::SHIFT,
             key: Keysym::h,
-            action: Action::Swap(-1),
+            action: Action::Swap(1),
         },
         KeyBinding {
             modifiers: mods::ALT | mods::SHIFT,
             key: Keysym::l,
-            action: Action::Swap(1),
+            action: Action::Swap(-1),
         },
         KeyBinding {
             modifiers: mods::ALT | mods::CONTROL,
@@ -58,6 +70,11 @@ fn main() {
             modifiers: mods::ALT | mods::CONTROL,
             key: Keysym::l,
             action: Action::ChangeRatio(-0.05),
+        },
+        KeyBinding {
+            modifiers: mods::ALT,
+            key: Keysym::r,
+            action: Action::Restart,
         },
     ];
 
@@ -79,6 +96,7 @@ fn main() {
 
     wm.setup_keybindings(test);
 
+    //4. ejecutamos el wm
     if let Err(e) = wm.run() {
         eprintln!("Error en el WM: {}", e);
     }

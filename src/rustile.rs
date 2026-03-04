@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::env;
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
 use x11rb::connection::Connection;
@@ -6,12 +8,7 @@ use x11rb::protocol::{Event, xproto::*};
 
 use xkeysym::Keysym;
 
-use crate::core::{Action, KeyBinding, WindowId, Workspace};
-
-const COLOR_FOCUS: u32 = 0xbd93f9;
-const COLOR_NORMAL: u32 = 0x44475a;
-const BORDER_WIDTH: u32 = 2;
-const GAP_SIZE: u32 = 10;
+use crate::core::{Action, KeyBinding, RustileConfig, WindowId, Workspace};
 
 pub struct Rustile<C: Connection> {
     conn: C,
@@ -24,8 +21,9 @@ pub struct Rustile<C: Connection> {
     atom_wm_type: Atom,
     atom_wm_type_dialog: Atom,
     atom_wm_type_utility: Atom,
-    atom_wm_type_toolbar: Atom,
+    _atom_wm_type_toolbar: Atom,
     atom_wm_type_splash: Atom,
+    pub config: RustileConfig,
 }
 
 impl<C: Connection> Rustile<C> {
@@ -65,7 +63,7 @@ impl<C: Connection> Rustile<C> {
             .unwrap()
             .atom;
 
-        let atom_wm_type_toolbar = conn
+        let _atom_wm_type_toolbar = conn
             .intern_atom(false, b"_NET_WM_WINDOW_TYPE_TOOLBAR")
             .unwrap()
             .reply()
@@ -96,14 +94,19 @@ impl<C: Connection> Rustile<C> {
             atom_wm_type,
             atom_wm_type_dialog,
             atom_wm_type_utility,
-            atom_wm_type_toolbar,
+            _atom_wm_type_toolbar,
             atom_wm_type_splash,
+            config: RustileConfig::default(),
         }
     }
 
     pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.init()?;
         println!("Esperando ventanas");
+
+        if let Err(e) = self.adopt_exitsing_windows() {
+            eprintln!("Advertencia: Fallo al adoptar ventanas: {}", e);
+        }
 
         loop {
             let event = self.conn.wait_for_event()?;
@@ -158,7 +161,9 @@ impl<C: Connection> Rustile<C> {
         Ok(())
     }
 
-    // pub fn set_border(&mut self, width: u32) -> u32 { }
+    pub fn set_config(&mut self, config: RustileConfig) {
+        self.config = config;
+    }
 
     pub fn move_to_workspace(&mut self, target: usize) -> Result<(), Box<dyn std::error::Error>> {
         let current = self.current_workspace;
@@ -181,7 +186,8 @@ impl<C: Connection> Rustile<C> {
                 let id = current_ws.stack.clients.remove(pos);
 
                 //Actualizamos el foco del workspace viejo (a la ventana que quedo)
-                current_ws.stack.focused == current_ws.stack.clients.first().copied().unwrap_or(0);
+                let _ = current_ws.stack.focused
+                    == current_ws.stack.clients.first().copied().unwrap_or(0);
                 Some(id)
             } else {
                 None
@@ -234,7 +240,7 @@ impl<C: Connection> Rustile<C> {
         }
 
         println!("cambiamos al workspace {}", self.current_workspace);
-        self.conn.flush();
+        self.conn.flush()?;
         Ok(())
     }
 
@@ -369,7 +375,7 @@ impl<C: Connection> Rustile<C> {
     ) -> Result<(), Box<dyn std::error::Error>> {
         //IMPORTANTE: Restamos el doble del borde para que el tamano total
         //(ventana + bordes) cincida con el espacio del layout.
-        let border_width = BORDER_WIDTH;
+        let border_width = self.config.border_width;
 
         //Evitamos valores negativos o cero que puedan causar errores en X11
         let width = if w > 2 * border_width {
@@ -404,7 +410,7 @@ impl<C: Connection> Rustile<C> {
 
         let sw = screen.width_in_pixels as u32;
         let sh = screen.height_in_pixels as u32;
-        let g = GAP_SIZE;
+        let g = self.config.gap_size;
 
         // 1. Si no hay ventanas, no hacemos nada
         if n == 0 {
@@ -535,10 +541,10 @@ impl<C: Connection> Rustile<C> {
                     }
                 }
                 Action::GoToWorkspace(idx) => {
-                    self.go_to_workspace(*idx);
+                    self.go_to_workspace(*idx)?;
                 }
                 Action::MoveToWorkspace(idx) => {
-                    self.move_to_workspace(*idx);
+                    self.move_to_workspace(*idx)?;
                 }
                 Action::ChangeRatio(delta) => {
                     {
@@ -548,6 +554,19 @@ impl<C: Connection> Rustile<C> {
 
                     self.apply_layout()?;
                 }
+                Action::Restart => {
+                    println!("🔄 Reiniciando Rustile...");
+
+                    // Obtenemos la ruta exacta de este binario
+                    if let Ok(exe_path) = env::current_exe() {
+                        // La funcion .exec() de Unix reemplaza el proceso actual.
+                        // Si tiene exito, el codigo debajo de esta linea NUNCA se ejecutara.
+                        let err = Command::new(exe_path).exec();
+
+                        //Si llegamos aqui, es porque hubo un error
+                        eprintln!("❌ Error fatal al reiniciar: {}", err);
+                    }
+                }
             }
         }
 
@@ -555,23 +574,6 @@ impl<C: Connection> Rustile<C> {
     }
 
     fn handle_map_request(&mut self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
-        /* 1. Añadir al stack del workspace actual
-        self.workspaces[self.current_workspace].stack.add(win);
-
-        // 2. Escuchar si la ventana se destruye o se mueve
-        let attrs = ChangeWindowAttributesAux::default()
-            .event_mask(EventMask::ENTER_WINDOW | EventMask::STRUCTURE_NOTIFY);
-        self.conn.change_window_attributes(win, &attrs)?;
-
-        // 3. Mapear (mostrar) la ventana
-        self.conn.map_window(win)?;
-
-        // 4. Recalcular posiciones de TODAS las ventanas
-        self.apply_layout()?;
-
-        println!("Ventana añadida al stack: {:?}", win);
-        Ok(())*/
-
         if self.should_float(win) {
             // --Logica de ventana flontante--
             // La centramos en la pantalla y no la agremamos al stack del Layout
@@ -615,8 +617,8 @@ impl<C: Connection> Rustile<C> {
     }
 
     fn handle_move_focus(&mut self, direction: i32) -> Result<(), Box<dyn std::error::Error>> {
-        let focused_color = 0xbd93f9;
-        let normal_color = 0x44475a;
+        let focused_color = self.config.color_focus;
+        let normal_color = self.config.color_normal;
 
         // 1. Obtene el workspace actual
         let ws = &mut self.workspaces[self.current_workspace];
@@ -672,13 +674,13 @@ impl<C: Connection> Rustile<C> {
         is_focused: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let color = if is_focused {
-            COLOR_FOCUS
+            self.config.color_focus
         } else {
-            COLOR_NORMAL
+            self.config.color_normal
         };
 
         //1. Ajustar el grosor del borde
-        let config_values = ConfigureWindowAux::default().border_width(BORDER_WIDTH);
+        let config_values = ConfigureWindowAux::default().border_width(self.config.border_width);
         self.conn.configure_window(win, &config_values)?;
 
         //2. Ajustar el color del borde
@@ -686,6 +688,47 @@ impl<C: Connection> Rustile<C> {
         self.conn.change_window_attributes(win, &attr_values)?;
 
         self.conn.flush()?;
+        Ok(())
+    }
+
+    fn adopt_exitsing_windows(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let screen = &self.conn.setup().roots[self.screen_num];
+
+        //Pedimos a X11 el arbol de todas las ventanas hijas de la pantalla principal
+        let tree = self.conn.query_tree(screen.root).unwrap().reply().unwrap();
+
+        for win in tree.children {
+            //Obtenemos los atributos de la ventana
+            let attrs = self
+                .conn
+                .get_window_attributes(win)
+                .unwrap()
+                .reply()
+                .unwrap();
+
+            //Ignoramos las ventanas 'override_redirect' (como menus desplegables o barras)
+            //y solo adoptamos las que estan visibles o fueron creadas por el usuario
+            if !attrs.override_redirect
+                && attrs.map_state != x11rb::protocol::xproto::MapState::UNMAPPED
+            {
+                //Suscribimos a los eventos de esta ventana (por si se cierra despues)
+                let event_mask =
+                    EventMask::ENTER_WINDOW | EventMask::FOCUS_CHANGE | EventMask::PROPERTY_CHANGE;
+                let aux = ChangeWindowAttributesAux::default().event_mask(event_mask);
+                self.conn.change_window_attributes(win, &aux);
+
+                // Agregamos la ventana a nuestro workspace actual
+                self.workspaces[self.current_workspace]
+                    .stack
+                    .clients
+                    .push(win);
+            }
+        }
+
+        self.apply_layout();
+        self.conn.flush();
+
+        println!("✅ Ventanas huérfanas adoptadas con éxito.");
         Ok(())
     }
 }

@@ -1,15 +1,12 @@
-use std::usize;
-
 use xkeysym::Keysym;
 
 pub type WindowId = u32;
 
-#[derive(Debug, Clone)]
-pub struct Rect {
-    pub x: u32,
-    pub y: u32,
-    pub w: u32,
-    pub h: u32,
+pub struct RustileConfig {
+    pub border_width: u32,
+    pub color_focus: u32,
+    pub color_normal: u32,
+    pub gap_size: u32,
 }
 
 #[derive(Debug)]
@@ -33,11 +30,12 @@ pub struct Workspace {
 
 #[derive(Debug, Clone)]
 pub enum Action {
-    Spawn(String), //Lanzar un comando (ej. alacritty)
+    Restart,
     Swap(i32),
-    KillClient, // Cerrar ventana actual
-    ChangeRatio(f32),
+    KillClient,             // Cerrar ventana actual
+    Spawn(String),          //Lanzar un comando (ej. alacritty)
     MoveFocus(i32),         // Cambiar de ventana
+    ChangeRatio(f32),       // Cambiamos el tamaño de la ventana
     GoToWorkspace(usize),   // Cambiar de workspace
     MoveToWorkspace(usize), // Cambiar de workspace
 }
@@ -46,6 +44,17 @@ pub struct KeyBinding {
     pub modifiers: u16, // Alt, Super, Control...
     pub key: Keysym,    // "Return", "q", "space"...
     pub action: Action,
+}
+
+impl Default for RustileConfig {
+    fn default() -> Self {
+        Self {
+            border_width: 2,
+            color_focus: 0x44475a,
+            color_normal: 0xbd93f9,
+            gap_size: 10,
+        }
+    }
 }
 
 impl Workspace {
