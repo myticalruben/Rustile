@@ -20,7 +20,7 @@ fn main() {
         gap_size: 4,
     };
 
-    wm.set_background_color(0xffff25).unwrap();
+    wm.set_background_color(0xffffff).unwrap();
     wm.set_config(config);
 
     // 3. Definir combinaciones de prueba

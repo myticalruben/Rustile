@@ -558,13 +558,18 @@ impl<C: Connection> Rustile<C> {
                     println!("🔄 Reiniciando Rustile...");
 
                     // Obtenemos la ruta exacta de este binario
-                    if let Ok(exe_path) = env::current_exe() {
+                    if let Some(exe_path) = std::env::args().next() {
                         // La funcion .exec() de Unix reemplaza el proceso actual.
                         // Si tiene exito, el codigo debajo de esta linea NUNCA se ejecutara.
-                        let err = Command::new(exe_path).exec();
+                        let err = Command::new(&exe_path).exec();
 
                         //Si llegamos aqui, es porque hubo un error
-                        eprintln!("❌ Error fatal al reiniciar: {}", err);
+                        eprintln!(
+                            "❌ Error fatal al reiniciar la ruta '{}': {}",
+                            exe_path, err
+                        );
+                    } else {
+                        eprintln!("❌ No se pudo determinal la ruta del archivo");
                     }
                 }
             }
