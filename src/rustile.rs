@@ -1,11 +1,12 @@
 use std::collections::HashMap;
-use std::env;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
 use x11rb::connection::Connection;
+use x11rb::protocol::xproto::ConnectionExt;
 use x11rb::protocol::{Event, xproto::*};
 
+use x11rb::wrapper::ConnectionExt as _;
 use xkeysym::Keysym;
 
 use crate::core::{Action, KeyBinding, RustileConfig, WindowId, Workspace};
@@ -15,8 +16,8 @@ pub struct Rustile<C: Connection> {
     screen_num: usize,
     workspaces: Vec<Workspace>,
     current_workspace: usize,
-    key_map: HashMap<(u16, u8), Action>,
     atom_wm_protocols: Atom,
+    key_map: HashMap<(u16, u8), Action>,
     atom_wm_delete_window: Atom,
     atom_wm_type: Atom,
     atom_wm_type_dialog: Atom,
@@ -104,8 +105,9 @@ impl<C: Connection> Rustile<C> {
         self.init()?;
         println!("Esperando ventanas");
 
-        if let Err(e) = self.adopt_exitsing_windows() {
-            eprintln!("Advertencia: Fallo al adoptar ventanas: {}", e);
+        // Escaneamos X11 y adoptamos las ventanas huérfanas antes de hacer nada más.
+        if let Err(e) = self.adopt_existing_window() {
+            eprintln!("⚠️ Error al adoptar ventanas preexistentes: {}", e);
         }
 
         loop {
@@ -165,7 +167,94 @@ impl<C: Connection> Rustile<C> {
         self.config = config;
     }
 
-    pub fn move_to_workspace(&mut self, target: usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_window_workspace_tag(
+        &mut self,
+        win: Window,
+        ws: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        //Pedimos el ID del post-it a X11
+        let atom_desktop = self
+            .conn
+            .intern_atom(false, b"_NET_WM_DESKTOP")?
+            .reply()?
+            .atom;
+
+        //Pegamos el valor (el indice del workspace) en la ventana
+        self.conn.change_property32(
+            PropMode::REPLACE,
+            win,
+            atom_desktop,
+            AtomEnum::CARDINAL,
+            &[ws as u32],
+        )?;
+        Ok(())
+    }
+
+    pub fn adopt_existing_window(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Entramos a adoptar las ventanas");
+        let screen = &self.conn.setup().roots[self.screen_num];
+        let tree = self.conn.query_tree(screen.root)?.reply()?;
+
+        let atom_desktop = self
+            .conn
+            .intern_atom(false, b"_NET_WM_DESKTOP")?
+            .reply()?
+            .atom;
+
+        for win in tree.children {
+            let attrs = self.conn.get_window_attributes(win)?.reply()?;
+            if attrs.override_redirect {
+                continue;
+            }
+
+            //Intentamos leer la etiqueta _NET_WM_DESKTOP
+            let prop = self
+                .conn
+                .get_property(false, win, atom_desktop, AtomEnum::ANY, 0, 1)?
+                .reply()?;
+
+            let mut target_ws = self.current_workspace;
+            let mut is_window_mine = false;
+
+            // Si tiene la etiqueta, extraemos el numero
+            if let Some(value) = prop.value32() {
+                if let Some(ws) = value.into_iter().next() {
+                    println!("🔍 [ÉXITO] Ventana {} pertenece al Workspace {}", win, ws);
+                    target_ws = ws as usize;
+                    is_window_mine = true;
+                }
+            }
+
+            // Adoptamos si tiene nuestra etiqueta (anque este oculta)
+            // O si no tiene etiqueta pero esta visible (ventana huerfana nueva)
+            if is_window_mine || attrs.map_state != x11rb::protocol::xproto::MapState::UNMAPPED {
+                // Prevenir errores si el indice guardado es mayor a nuestros workspaces
+                let ws = target_ws.min(self.workspaces.len() - 1);
+
+                //Suscribir a eventos
+                let event_mask =
+                    EventMask::ENTER_WINDOW | EventMask::FOCUS_CHANGE | EventMask::PROPERTY_CHANGE;
+                let aux = ChangeWindowAttributesAux::default().event_mask(event_mask);
+                self.conn.change_window_attributes(win, &aux)?;
+
+                // Agegamos a su workspace correspondiente
+                self.workspaces[ws].stack.clients.push(win);
+
+                if ws == self.current_workspace {
+                    self.conn.map_window(win)?;
+                } else {
+                    self.conn.unmap_window(win)?;
+                }
+            }
+        }
+
+        self.apply_layout()?;
+        self.conn.flush()?;
+        println!("✅ Ventanas adoptadas con memoria perfecta.");
+        Ok(())
+    }
+
+    fn move_to_workspace(&mut self, target: usize) -> Result<(), Box<dyn std::error::Error>> {
         let current = self.current_workspace;
 
         //Si es el mismo workspace o el indice no existe, no hacemos nada
@@ -173,7 +262,7 @@ impl<C: Connection> Rustile<C> {
             return Ok(());
         }
 
-        //1.Extraer la ventana enfocada del workspace actual
+        //.Extraer la ventana enfocada del workspace actual
 
         let focused_win = {
             let current_ws = &mut self.workspaces[current];
@@ -199,6 +288,7 @@ impl<C: Connection> Rustile<C> {
             let target_ws = &mut self.workspaces[target];
             target_ws.stack.clients.push(win);
             target_ws.stack.focused = win; // La ventana movida mantiene el foco alli
+            self.set_window_workspace_tag(win, target)?;
 
             //3. IMPORTANTE: Como la ventana "se fue" a otro escritorio, debemos ocultarla (unmap)
             self.conn.unmap_window(win)?;
@@ -599,7 +689,11 @@ impl<C: Connection> Rustile<C> {
         } else {
             // --- Logica de Tiling (lo que ya tenias) ---
             //1. Añadir al stack del workspace actual
-            self.workspaces[self.current_workspace].stack.add(win);
+            self.workspaces[self.current_workspace]
+                .stack
+                .clients
+                .push(win);
+            self.set_window_workspace_tag(win, self.current_workspace)?;
 
             // 2. Escuchar si la ventana se destruye o se mueve
             let attrs = ChangeWindowAttributesAux::default()
@@ -693,47 +787,6 @@ impl<C: Connection> Rustile<C> {
         self.conn.change_window_attributes(win, &attr_values)?;
 
         self.conn.flush()?;
-        Ok(())
-    }
-
-    fn adopt_exitsing_windows(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let screen = &self.conn.setup().roots[self.screen_num];
-
-        //Pedimos a X11 el arbol de todas las ventanas hijas de la pantalla principal
-        let tree = self.conn.query_tree(screen.root).unwrap().reply().unwrap();
-
-        for win in tree.children {
-            //Obtenemos los atributos de la ventana
-            let attrs = self
-                .conn
-                .get_window_attributes(win)
-                .unwrap()
-                .reply()
-                .unwrap();
-
-            //Ignoramos las ventanas 'override_redirect' (como menus desplegables o barras)
-            //y solo adoptamos las que estan visibles o fueron creadas por el usuario
-            if !attrs.override_redirect
-                && attrs.map_state != x11rb::protocol::xproto::MapState::UNMAPPED
-            {
-                //Suscribimos a los eventos de esta ventana (por si se cierra despues)
-                let event_mask =
-                    EventMask::ENTER_WINDOW | EventMask::FOCUS_CHANGE | EventMask::PROPERTY_CHANGE;
-                let aux = ChangeWindowAttributesAux::default().event_mask(event_mask);
-                self.conn.change_window_attributes(win, &aux);
-
-                // Agregamos la ventana a nuestro workspace actual
-                self.workspaces[self.current_workspace]
-                    .stack
-                    .clients
-                    .push(win);
-            }
-        }
-
-        self.apply_layout();
-        self.conn.flush();
-
-        println!("✅ Ventanas huérfanas adoptadas con éxito.");
         Ok(())
     }
 }
