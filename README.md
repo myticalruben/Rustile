@@ -91,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 [ ] Soporte para múltiples monitores (Xinerama/RandR).
 
-[ ] Intercambio físico de ventanas (Swap).
+[x] Intercambio físico de ventanas (Swap).
 
 [ ] Barra de estado (StatusBar) integrada.
 
