@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
@@ -25,6 +25,7 @@ pub struct Rustile<C: Connection> {
     _atom_wm_type_toolbar: Atom,
     atom_wm_type_splash: Atom,
     pub config: RustileConfig,
+    pub floating_windows: HashSet<Window>,
 }
 
 impl<C: Connection> Rustile<C> {
@@ -98,6 +99,7 @@ impl<C: Connection> Rustile<C> {
             _atom_wm_type_toolbar,
             atom_wm_type_splash,
             config: RustileConfig::default(),
+            floating_windows: HashSet::new(),
         }
     }
 
@@ -496,7 +498,21 @@ impl<C: Connection> Rustile<C> {
     fn apply_layout(&self) -> Result<(), Box<dyn std::error::Error>> {
         let ws = &self.workspaces[self.current_workspace];
         let screen = &self.conn.setup().roots[self.screen_num];
-        let n = ws.stack.clients.len();
+
+        //Separamos las ventanas en dos grupos
+        let mut tiled_clients = Vec::new();
+        for &win in &ws.stack.clients {
+            if self.floating_windows.contains(&win) {
+                // Las flotantes las subimos encima de las demas para que no queden ocultas
+                let aux = ConfigureWindowAux::default().stack_mode(StackMode::ABOVE);
+                self.conn.configure_window(win, &aux)?;
+            } else {
+                //Guardamos las que si van hacer Tiling
+                tiled_clients.push(win);
+            }
+        }
+
+        let n = tiled_clients.len();
 
         let sw = screen.width_in_pixels as u32;
         let sh = screen.height_in_pixels as u32;
@@ -509,9 +525,8 @@ impl<C: Connection> Rustile<C> {
 
         // 2. CASO ESPECIAL: Una sola ventana
         if n == 1 {
-            let win = ws.stack.clients[0];
             // Forzamos 0,0 y el ancho/alto TOTAL de la pantalla
-            self.resize_client(win, g, g, sw - 2 * g, sh - 2 * g)?;
+            self.resize_client(tiled_clients[0], g, g, sw - 2 * g, sh - 2 * g)?;
         }
         // 3. CASO: Varias ventanas (Master/Stack)
         else {
@@ -520,7 +535,7 @@ impl<C: Connection> Rustile<C> {
 
             // La primera ventana SIEMPRE empieza en x=0
             self.resize_client(
-                ws.stack.clients[0],
+                tiled_clients[0],
                 g,
                 g,
                 master_width - (g + g / 2), //Deja espacio a la deracha para el stack
@@ -530,7 +545,7 @@ impl<C: Connection> Rustile<C> {
             let stack_count = n - 1;
             let stack_height = sh / stack_count as u32;
 
-            for (i, &win) in ws.stack.clients.iter().skip(1).enumerate() {
+            for (i, &win) in tiled_clients.iter().skip(1).enumerate() {
                 let y = i as u32 * stack_height;
                 // Las del stack empiezan donde termina el master (x = master_width)
                 self.resize_client(
@@ -660,6 +675,33 @@ impl<C: Connection> Rustile<C> {
                         );
                     } else {
                         eprintln!("❌ No se pudo determinal la ruta del archivo");
+                    }
+                }
+                Action::ToggleFloat => {
+                    //Obtenemos la ventana que tiene el foco actualmente
+                    let focused = self.workspaces[self.current_workspace].stack.focused;
+
+                    if focused != 0 {
+                        //Si ya era flotante, la quitamos. Si no lo era, la agregamos.
+                        if self.floating_windows.contains(&focused) {
+                            self.floating_windows.remove(&focused);
+                            println!("Ventana {} ha vuelto al Tiling", focused);
+                        } else {
+                            self.floating_windows.insert(focused);
+
+                            //La centramos en la pantalla cuando la hacemos flotante
+                            let screen = &self.conn.setup().roots[self.screen_num];
+                            let w = 800;
+                            let h = 600;
+                            let x = (screen.width_in_pixels as u32 - w) / 2;
+                            let y = (screen.height_in_pixels as u32 - h) / 2;
+
+                            self.resize_client(focused, x, y, w, h)?;
+                            println!("Ventana {} ahora esta Flotando", focused);
+                        }
+
+                        //Re-calculamos el layout para que las demoas llenen el hueco
+                        self.apply_layout()?;
                     }
                 }
             }

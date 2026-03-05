@@ -32,7 +32,8 @@ pub struct Workspace {
 pub enum Action {
     Restart,
     Swap(i32),
-    KillClient,             // Cerrar ventana actual
+    KillClient, // Cerrar ventana actual
+    ToggleFloat,
     Spawn(String),          //Lanzar un comando (ej. alacritty)
     MoveFocus(i32),         // Cambiar de ventana
     ChangeRatio(f32),       // Cambiamos el tamaño de la ventana
@@ -44,6 +45,17 @@ pub struct KeyBinding {
     pub modifiers: u16, // Alt, Super, Control...
     pub key: Keysym,    // "Return", "q", "space"...
     pub action: Action,
+}
+
+pub mod mods {
+    pub const ALT: u16 = 8; // Alt
+    pub const NONE: u16 = 0;
+    pub const SHIFT: u16 = 1; // Shift
+    pub const MOD_4: u16 = 64; // Tecla Super/Windows
+    pub const CONTROL: u16 = 4; // Ctrl
+    pub const ALT_SHIFT: u16 = ALT | SHIFT;
+    pub const ALT_CONTROL: u16 = ALT | CONTROL;
+    pub const SHIFT_CONTROL: u16 = SHIFT | CONTROL;
 }
 
 impl Default for RustileConfig {
@@ -146,15 +158,4 @@ impl Stack {
         //3. Actualizar el ID enfocado
         self.focused = self.clients[next_pos];
     }
-}
-
-pub mod mods {
-    pub const ALT: u16 = 8; // Alt
-    pub const NONE: u16 = 0;
-    pub const SHIFT: u16 = 1; // Shift
-    pub const MOD_4: u16 = 64; // Tecla Super/Windows
-    pub const CONTROL: u16 = 4; // Ctrl
-    pub const ALT_SHIFT: u16 = ALT | SHIFT;
-    pub const ALT_CONTROL: u16 = ALT | CONTROL;
-    pub const SHIFT_CONTROL: u16 = SHIFT | CONTROL;
 }

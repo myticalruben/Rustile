@@ -62,9 +62,14 @@ pub fn keymaps() -> Vec<KeyBinding> {
             key: Keysym::r,
             action: Action::Restart,
         },
+        KeyBinding {
+            modifiers: mods::MOD_4,
+            key: Keysym::t,
+            action: Action::ToggleFloat,
+        },
     ];
 
-    let mut audio = vec![
+    let audio = vec![
         KeyBinding {
             modifiers: NONE as u16,
             key: Keysym::XF86_AudioRaiseVolume,
