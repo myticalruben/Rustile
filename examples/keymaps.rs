@@ -1,11 +1,11 @@
 use rustile::{
     core::{Action, KeyBinding},
-    mods,
+    mods, rustile::Rustile,
 };
-use x11rb::NONE;
+use x11rb::{NONE, connection::Connection};
 use xkeysym::Keysym;
 
-pub fn keymaps() -> Vec<KeyBinding> {
+pub fn keymaps<C: Connection>() -> Vec<KeyBinding<C>> {
     let mut keys = vec![
         KeyBinding {
             modifiers: mods::MOD_4,
@@ -20,7 +20,7 @@ pub fn keymaps() -> Vec<KeyBinding> {
         KeyBinding {
             modifiers: mods::MOD_4,
             key: Keysym::space,
-            action: Action::Spawn("rofi -show drun".into()),
+            action: Action::Spawn("rofi -show drun -show-icons -theme launchpad".into()),
         },
         KeyBinding {
             modifiers: mods::MOD_4,
@@ -67,6 +67,11 @@ pub fn keymaps() -> Vec<KeyBinding> {
             key: Keysym::t,
             action: Action::ToggleFloat,
         },
+        KeyBinding {
+            modifiers: mods::MOD_4,
+            key: Keysym::m,
+            action: Action::Custom(act),
+        },
     ];
 
     let audio = vec![
@@ -87,8 +92,55 @@ pub fn keymaps() -> Vec<KeyBinding> {
         },
     ];
 
+    let win = vec![
+        KeyBinding {
+            modifiers: mods::MOD_4,
+            key: Keysym::Right,
+            action: Action::MoveFloating(20, 0),
+        },
+        KeyBinding {
+            modifiers: mods::MOD_4,
+            key: Keysym::Left,
+            action: Action::MoveFloating(-20, 0),
+        },
+        KeyBinding {
+            modifiers: mods::MOD_4,
+            key: Keysym::Up,
+            action: Action::MoveFloating(0, -20),
+        },
+        KeyBinding {
+            modifiers: mods::MOD_4,
+            key: Keysym::Down,
+            action: Action::MoveFloating(0, 20),
+        },
+        KeyBinding {
+            modifiers: mods::MOD_4 | mods::SHIFT,
+            key: Keysym::Right,
+            action: Action::ResizeFloating(20, 0),
+        },
+        KeyBinding {
+            modifiers: mods::MOD_4 | mods::SHIFT,
+            key: Keysym::Left,
+            action: Action::ResizeFloating(-20, 0),
+        },
+        KeyBinding {
+            modifiers: mods::MOD_4 | mods::SHIFT,
+            key: Keysym::Up,
+            action: Action::ResizeFloating(0, -20),
+        },
+        KeyBinding {
+            modifiers: mods::MOD_4 | mods::SHIFT,
+            key: Keysym::Down,
+            action: Action::ResizeFloating(0, 20),
+        },
+    ];
+
     for a in audio {
         keys.push(a);
+    }
+
+    for w in win {
+        keys.push(w);
     }
 
     for i in 0..9 {
@@ -108,4 +160,8 @@ pub fn keymaps() -> Vec<KeyBinding> {
     }
 
     keys
+}
+
+fn act<C: Connection>(wm: &mut Rustile<C>){
+
 }

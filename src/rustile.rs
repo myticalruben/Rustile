@@ -8,7 +8,7 @@ use x11rb::protocol::{Event, xproto::*};
 
 use x11rb::wrapper::ConnectionExt as _;
 use xkeysym::Keysym;
-use xkeysym::key::aogonek;
+use xkeysym::key::{aogonek, x};
 
 use crate::core::{Action, KeyBinding, RustileConfig, WindowId, Workspace};
 
@@ -18,7 +18,7 @@ pub struct Rustile<C: Connection> {
     workspaces: Vec<Workspace>,
     current_workspace: usize,
     atom_wm_protocols: Atom,
-    key_map: HashMap<(u16, u8), Action>,
+    key_map: HashMap<(u16, u8), Action<C>>,
     atom_wm_delete_window: Atom,
     atom_wm_type: Atom,
     atom_wm_type_dialog: Atom,
@@ -161,6 +161,21 @@ impl<C: Connection> Rustile<C> {
             .event_mask(EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY);
 
         change_window_attributes(&self.conn, screen.root, &values)?;
+
+        let modifiers = ModMask::M4; // Tecla Super
+
+        // Click Izquierdo para mover
+        self.conn.grab_button(
+            true,
+            screen.root,
+            EventMask::BUTTON_PRESS | EventMask::BUTTON_RELEASE | EventMask::BUTTON_MOTION,
+            GrabMode::ASYNC,
+            GrabMode::ASYNC,
+            0 as u32,
+            0 as u32,
+            ButtonIndex::M1,
+            modifiers,
+        )?;
 
         self.conn.flush()?;
         Ok(())
@@ -353,8 +368,8 @@ impl<C: Connection> Rustile<C> {
         Ok(())
     }
 
-    pub fn setup_keybindings(&mut self, bindings: Vec<KeyBinding>) {
-        let mut map = HashMap::new();
+    pub fn setup_keybindings(&mut self, bindings: Vec<KeyBinding<C>>) {
+        let mut map: HashMap<(u16, u8), Action<C>> = HashMap::new();
 
         for b in bindings {
             // Usamos la funcion que creamos antes para obtener el codigo fisico
@@ -407,14 +422,7 @@ impl<C: Connection> Rustile<C> {
         //Comprobar si es "hija" de otra ventana (WM_TRASIENT_FOR)
         let trasient_reply = self
             .conn
-            .get_property(
-                false,
-                win,
-                AtomEnum::WM_TRANSIENT_FOR,
-                AtomEnum::ANY,
-                0,
-                1,
-            )?
+            .get_property(false, win, AtomEnum::WM_TRANSIENT_FOR, AtomEnum::ANY, 0, 1)?
             .reply()?;
 
         if trasient_reply.value32().is_some() {
@@ -484,29 +492,42 @@ impl<C: Connection> Rustile<C> {
         }
 
         //Inspeccion profunda del WM_WINDOW_ROLE
-        let atom_role = self.conn.intern_atom(false, b"WM_WINDOW_ROLE")?.reply()?.atom;
-        let role_reply = self.conn.get_property(false, win, atom_role, AtomEnum::ANY, 0, 1024)?.reply()?;
-        if let Some(value) = role_reply.value8(){
-            if let Ok(role_str) = std::str::from_utf8(&value.collect::<Vec<u8>>()){
+        let atom_role = self
+            .conn
+            .intern_atom(false, b"WM_WINDOW_ROLE")?
+            .reply()?
+            .atom;
+        let role_reply = self
+            .conn
+            .get_property(false, win, atom_role, AtomEnum::ANY, 0, 1024)?
+            .reply()?;
+        if let Some(value) = role_reply.value8() {
+            if let Ok(role_str) = std::str::from_utf8(&value.collect::<Vec<u8>>()) {
                 // Atrapamos el dialogo y otros pop-ups comunes
-                if role_str.contains("GtkFileChooserDialog") || role_str.contains("pop-up") || role_str.contains("bubble"){
+                if role_str.contains("GtkFileChooserDialog")
+                    || role_str.contains("pop-up")
+                    || role_str.contains("bubble")
+                {
                     return Ok(true);
                 }
             }
         }
 
-        //Inspeccion profunda del WM_CLASS 
+        //Inspeccion profunda del WM_CLASS
         let atom_class = self.conn.intern_atom(false, b"WM_CLASS")?.reply()?.atom;
-        let class_reply = self.conn.get_property(false, win, atom_class, AtomEnum::ANY, 0, 1024)?.reply()?;
-        if let Some(value) = class_reply.value8(){
-            if let Ok(class_str) = std::str::from_utf8(&value.collect::<Vec<u8>>()){
+        let class_reply = self
+            .conn
+            .get_property(false, win, atom_class, AtomEnum::ANY, 0, 1024)?
+            .reply()?;
+        if let Some(value) = class_reply.value8() {
+            if let Ok(class_str) = std::str::from_utf8(&value.collect::<Vec<u8>>()) {
                 // Atrapamo explicitamente el portal de GTK que vimos en el xprop
-                if class_str.contains("xdg-desktop-portal-gtk"){
+                if class_str.contains("xdg-desktop-portal-gtk") {
                     return Ok(true);
                 }
             }
         }
-    
+
         //Si no cumple nada de lo anterior, va al tiling
         Ok(false)
     }
@@ -569,7 +590,7 @@ impl<C: Connection> Rustile<C> {
     fn resize_client(
         &self,
         win: WindowId,
-        x: u32,
+        x_var: u32,
         y: u32,
         w: u32,
         h: u32,
@@ -592,7 +613,7 @@ impl<C: Connection> Rustile<C> {
         };
 
         let values = ConfigureWindowAux::default()
-            .x(x as i32)
+            .x(x_var as i32)
             .y(y as i32)
             .width(width)
             .height(height)
@@ -802,16 +823,57 @@ impl<C: Connection> Rustile<C> {
                             let screen = &self.conn.setup().roots[self.screen_num];
                             let w = 800;
                             let h = 600;
-                            let x = (screen.width_in_pixels as u32 - w) / 2;
+                            let x_var = (screen.width_in_pixels as u32 - w) / 2;
                             let y = (screen.height_in_pixels as u32 - h) / 2;
 
-                            self.resize_client(focused, x, y, w, h)?;
+                            self.resize_client(focused, x_var, y, w, h)?;
                             println!("Ventana {} ahora esta Flotando", focused);
                         }
 
                         //Re-calculamos el layout para que las demoas llenen el hueco
                         self.apply_layout()?;
                     }
+                }
+                Action::MoveFloating(dx, dy) => {
+                    //Obtenemos la ventana que tiene el foco actual
+                    let focused = self.workspaces[self.current_workspace].stack.focused;
+
+                    //Solo aplicamos esto si hay una ventana enfocada y es flotante
+                    if focused != 0 && self.floating_windows.contains(&focused){
+                        //Pedimos su posicion y el size actual a X11
+                        if let Ok(geom) = self.conn.get_geometry(focused).and_then(|c| Ok(c.reply())){
+                            let g = geom.unwrap().clone();
+                            let new_x = g.x as i32 + dx;
+                            let new_y = g.y as i32 + dy;
+
+                            //Le aplicamos las nuevas coordenadas
+                            let aux = ConfigureWindowAux::default().x(new_x).y(new_y);
+                            let _ = self.conn.configure_window(focused, &aux);
+                        }
+                    }
+                    self.conn.flush();
+
+                },
+                Action::ResizeFloating(dw, dh) => {
+                    let focused = self.workspaces[self.current_workspace].stack.focused;
+
+                    if focused != 0 && self.floating_windows.contains(&focused){
+                        if let Ok(geom) = self.conn.get_geometry(focused).and_then(|c| Ok(c.reply())){
+                            //Calculamos el nuevo size (con un liminte minimo de 10 pixeles para no desaparecerla)
+                            let g = geom.unwrap().clone();
+                            
+                            let new_w = (g.width as i32 + dw).max(10) as u32;
+                            let new_h = (g.height as i32 + dh).max(10) as u32;
+
+                            let aux = ConfigureWindowAux::default().width(new_w).height(new_h);
+                            let _ = self.conn.configure_window(focused, &aux);
+                        }
+                    }
+
+                    self.conn.flush();
+                },
+                Action::Custom(func) => {
+                    func(self);
                 }
             }
         }
@@ -851,11 +913,11 @@ impl<C: Connection> Rustile<C> {
                 let gh = g.height as u32;
 
                 //La centramos en la pantalla usando su size original
-                let x = (screen.width_in_pixels as u32).saturating_sub(gw) / 2;
+                let x_var = (screen.width_in_pixels as u32).saturating_sub(gw) / 2;
                 let y = (screen.height_in_pixels as u32).saturating_sub(gh) / 2;
 
                 //La posicionamos pero respetando el ancho y alto que Pidio
-                self.resize_client(win, x, y, gw, gh)?;
+                self.resize_client(win, x_var, y, gw, gh)?;
             }
         }
 

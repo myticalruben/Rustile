@@ -1,4 +1,9 @@
+use std::any::Any;
+
+use x11rb::connection::Connection;
 use xkeysym::Keysym;
+
+use crate::rustile::Rustile;
 
 pub type WindowId = u32;
 
@@ -28,8 +33,8 @@ pub struct Workspace {
     pub layout: Layout,
 }
 
-#[derive(Debug, Clone)]
-pub enum Action {
+#[derive(Debug)]
+pub enum Action<C: Connection> {
     Restart,
     Swap(i32),
     KillClient, // Cerrar ventana actual
@@ -39,12 +44,16 @@ pub enum Action {
     ChangeRatio(f32),       // Cambiamos el tamaño de la ventana
     GoToWorkspace(usize),   // Cambiar de workspace
     MoveToWorkspace(usize), // Cambiar de workspace
+    MoveFloating(i32, i32),
+    ResizeFloating(i32, i32),
+    Custom(fn(&mut Rustile<C>))
 }
 
-pub struct KeyBinding {
+#[derive(Debug, Clone)]
+pub struct KeyBinding<C: Connection> {
     pub modifiers: u16, // Alt, Super, Control...
     pub key: Keysym,    // "Return", "q", "space"...
-    pub action: Action,
+    pub action: Action<C>,
 }
 
 pub mod mods {
@@ -56,6 +65,25 @@ pub mod mods {
     pub const ALT_SHIFT: u16 = ALT | SHIFT;
     pub const ALT_CONTROL: u16 = ALT | CONTROL;
     pub const SHIFT_CONTROL: u16 = SHIFT | CONTROL;
+}
+
+impl<C: Connection> Clone for Action<C>{
+    fn clone(&self) -> Self {
+        match self {
+            Self::Restart => Self::Restart,
+            Self::Swap(arg0) => Self::Swap(arg0.clone()),
+            Self::KillClient => Self::KillClient,
+            Self::ToggleFloat => Self::ToggleFloat,
+            Self::Spawn(arg0) => Self::Spawn(arg0.clone()),
+            Self::MoveFocus(arg0) => Self::MoveFocus(arg0.clone()),
+            Self::ChangeRatio(arg0) => Self::ChangeRatio(arg0.clone()),
+            Self::GoToWorkspace(arg0) => Self::GoToWorkspace(arg0.clone()),
+            Self::MoveToWorkspace(arg0) => Self::MoveToWorkspace(arg0.clone()),
+            Self::MoveFloating(arg0, arg1) => Self::MoveFloating(arg0.clone(), arg1.clone()),
+            Self::ResizeFloating(arg0, arg1) => Self::ResizeFloating(arg0.clone(), arg1.clone()),
+            Self::Custom(arg0) => Self::Custom(arg0.clone()),
+        }
+    }
 }
 
 impl Default for RustileConfig {
