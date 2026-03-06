@@ -8,6 +8,7 @@ use x11rb::protocol::{Event, xproto::*};
 
 use x11rb::wrapper::ConnectionExt as _;
 use xkeysym::Keysym;
+use xkeysym::key::aogonek;
 
 use crate::core::{Action, KeyBinding, RustileConfig, WindowId, Workspace};
 
@@ -402,6 +403,114 @@ impl<C: Connection> Rustile<C> {
         Ok(())
     }
 
+    fn should_window_float(&self, win: Window) -> Result<bool, Box<dyn std::error::Error>> {
+        //Comprobar si es "hija" de otra ventana (WM_TRASIENT_FOR)
+        let trasient_reply = self
+            .conn
+            .get_property(
+                false,
+                win,
+                AtomEnum::WM_TRANSIENT_FOR,
+                AtomEnum::ANY,
+                0,
+                1,
+            )?
+            .reply()?;
+
+        if trasient_reply.value32().is_some() {
+            return Ok(true); //Es un pop-up dialogo hijo
+        }
+
+        //Comprobamos el tipo de ventana en EWHM (_NET_WM_WINDOW_TYPE)
+        let atom_type = self
+            .conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE")?
+            .reply()?
+            .atom;
+        let atom_dialog = self
+            .conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_DIALOG")?
+            .reply()?
+            .atom;
+        let atom_utility = self
+            .conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_UTILITY")?
+            .reply()?
+            .atom;
+        let atom_splash = self
+            .conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_SPLASH")?
+            .reply()?
+            .atom;
+
+        let atom_dropdown = self
+            .conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_DROPDOWN_MENU")?
+            .reply()?
+            .atom;
+        let atom_popup = self
+            .conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_POPUP_MENU")?
+            .reply()?
+            .atom;
+        let atom_tooltip = self
+            .conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_TOOLTIP")?
+            .reply()?
+            .atom;
+        let atom_menu = self
+            .conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_MENU")?
+            .reply()?
+            .atom;
+
+        let type_reply = self
+            .conn
+            .get_property(false, win, atom_type, AtomEnum::ANY, 0, 1024)?
+            .reply()?;
+
+        if let Some(mut values) = type_reply.value32() {
+            if values.any(|v| {
+                v == atom_dialog
+                    || v == atom_utility
+                    || v == atom_splash
+                    || v == atom_dropdown
+                    || v == atom_popup
+                    || v == atom_tooltip
+                    || v == atom_menu
+            }) {
+                return Ok(true); // Es un dialogo, utilidad o pantalla de carga
+            }
+        }
+
+        //Inspeccion profunda del WM_WINDOW_ROLE
+        let atom_role = self.conn.intern_atom(false, b"WM_WINDOW_ROLE")?.reply()?.atom;
+        let role_reply = self.conn.get_property(false, win, atom_role, AtomEnum::ANY, 0, 1024)?.reply()?;
+        if let Some(value) = role_reply.value8(){
+            if let Ok(role_str) = std::str::from_utf8(&value.collect::<Vec<u8>>()){
+                // Atrapamos el dialogo y otros pop-ups comunes
+                if role_str.contains("GtkFileChooserDialog") || role_str.contains("pop-up") || role_str.contains("bubble"){
+                    return Ok(true);
+                }
+            }
+        }
+
+        //Inspeccion profunda del WM_CLASS 
+        let atom_class = self.conn.intern_atom(false, b"WM_CLASS")?.reply()?.atom;
+        let class_reply = self.conn.get_property(false, win, atom_class, AtomEnum::ANY, 0, 1024)?.reply()?;
+        if let Some(value) = class_reply.value8(){
+            if let Ok(class_str) = std::str::from_utf8(&value.collect::<Vec<u8>>()){
+                // Atrapamo explicitamente el portal de GTK que vimos en el xprop
+                if class_str.contains("xdg-desktop-portal-gtk"){
+                    return Ok(true);
+                }
+            }
+        }
+    
+        //Si no cumple nada de lo anterior, va al tiling
+        Ok(false)
+    }
+
     fn should_float(&self, win: WindowId) -> bool {
         let cookie = self
             .conn
@@ -711,44 +820,58 @@ impl<C: Connection> Rustile<C> {
     }
 
     fn handle_map_request(&mut self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
-        if self.should_float(win) {
-            // --Logica de ventana flontante--
-            // La centramos en la pantalla y no la agremamos al stack del Layout
-            let screen = &self.conn.setup().roots[self.screen_num];
-            let width = 600;
-            let height = 400;
-            let x = (screen.width_in_pixels as u32 - width) / 2;
-            let y = (screen.height_in_pixels as u32 - height) / 2;
+        //Escuchar si la ventana se destruye o se mueve
+        let attrs = ChangeWindowAttributesAux::default()
+            .event_mask(EventMask::ENTER_WINDOW | EventMask::STRUCTURE_NOTIFY);
+        self.conn.change_window_attributes(win, &attrs)?;
 
-            let values = ConfigureWindowAux::default()
-                .x(x as i32)
-                .y(y as i32)
-                .width(width)
-                .height(height)
-                .border_width(2);
-
-            self.conn.configure_window(win, &values)?;
-        } else {
-            // --- Logica de Tiling (lo que ya tenias) ---
-            //1. Añadir al stack del workspace actual
-            self.workspaces[self.current_workspace]
-                .stack
-                .clients
-                .push(win);
-            self.set_window_workspace_tag(win, self.current_workspace)?;
-
-            // 2. Escuchar si la ventana se destruye o se mueve
-            let attrs = ChangeWindowAttributesAux::default()
-                .event_mask(EventMask::ENTER_WINDOW | EventMask::STRUCTURE_NOTIFY);
-            self.conn.change_window_attributes(win, &attrs)?;
-
-            // 3. Mapear (mostrar) la ventana
-            self.conn.map_window(win)?;
-
-            // 4. Recalcular posiciones de TODAS las ventanas
-            self.apply_layout()?;
-            println!("Ventana añadida al stack: {:?}", win);
+        // La ventana pide ser ignorada?
+        let attr = self.conn.get_window_attributes(win)?.reply()?;
+        if attr.override_redirect {
+            // Ignoramos la ventana por completo y salimos del evento
+            return Ok(());
         }
+
+        //consultamos al dectector
+        let should_float = self.should_window_float(win).unwrap_or(false);
+
+        if should_float {
+            println!("Ventana {} dectectada como flotante automaticamente", win);
+            self.floating_windows.insert(win);
+
+            //Obtenemos el size que la ventana Pidio tener
+            if let Ok(geom) = self
+                .conn
+                .get_geometry(win)
+                .and_then(|cookie| Ok(cookie.reply()))
+            {
+                let screen = &self.conn.setup().roots[self.screen_num];
+                let g = geom.unwrap().clone();
+                let gw = g.width as u32;
+                let gh = g.height as u32;
+
+                //La centramos en la pantalla usando su size original
+                let x = (screen.width_in_pixels as u32).saturating_sub(gw) / 2;
+                let y = (screen.height_in_pixels as u32).saturating_sub(gh) / 2;
+
+                //La posicionamos pero respetando el ancho y alto que Pidio
+                self.resize_client(win, x, y, gw, gh)?;
+            }
+        }
+
+        //Añadir al stack del workspace actual
+        self.workspaces[self.current_workspace]
+            .stack
+            .clients
+            .push(win);
+        self.set_window_workspace_tag(win, self.current_workspace)?;
+
+        //Mapear (mostrar) la ventana
+        self.conn.map_window(win)?;
+
+        //Recalcular posiciones de TODAS las ventanas
+        self.apply_layout()?;
+        println!("Ventana añadida al stack: {:?}", win);
 
         self.conn.map_window(win)?;
         self.set_focus(win)?;

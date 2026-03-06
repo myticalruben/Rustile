@@ -30,22 +30,22 @@ pub fn keymaps() -> Vec<KeyBinding> {
         KeyBinding {
             modifiers: mods::MOD_4,
             key: Keysym::h,
-            action: Action::MoveFocus(1),
+            action: Action::MoveFocus(-1),
         },
         KeyBinding {
             modifiers: mods::MOD_4,
             key: Keysym::l,
-            action: Action::MoveFocus(-1),
+            action: Action::MoveFocus(1),
         },
         KeyBinding {
             modifiers: mods::MOD_4 | mods::SHIFT,
             key: Keysym::h,
-            action: Action::Swap(1),
+            action: Action::Swap(-1),
         },
         KeyBinding {
             modifiers: mods::MOD_4 | mods::SHIFT,
             key: Keysym::l,
-            action: Action::Swap(-1),
+            action: Action::Swap(1),
         },
         KeyBinding {
             modifiers: mods::MOD_4 | mods::CONTROL,
