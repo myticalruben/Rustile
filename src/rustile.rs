@@ -112,6 +112,8 @@ impl<C: Connection> Rustile<C> {
         if let Err(e) = self.adopt_existing_window() {
             eprintln!("⚠️ Error al adoptar ventanas preexistentes: {}", e);
         }
+        self.update_ewmh_desktops()?;
+
 
         loop {
             let event = self.conn.wait_for_event()?;
@@ -343,6 +345,9 @@ impl<C: Connection> Rustile<C> {
         //4. Aplicamos el layour y damos el foco
         self.apply_layout()?;
 
+        if let Err(e) = self.update_ewmh_desktops(){
+            eprintln!("Error actualizado EWMH: {}", e);
+        }
         if let Some(&first) = new_ws.stack.clients.first() {
             self.set_focus(first)?;
         }
@@ -365,6 +370,45 @@ impl<C: Connection> Rustile<C> {
         self.conn.clear_area(false, root, 0, 0, 0, 0)?;
         self.conn.flush()?;
 
+        Ok(())
+    }
+
+    pub fn update_ewmh_desktops(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let screen = &self.conn.setup().roots[self.screen_num];
+
+        //Pedirle a X11 los "Atoms" (IDs) de las etiquetas que queremos usar
+        let atom_num_desktop = self
+            .conn
+            .intern_atom(false, b"_NET_NUMBER_OF_DESKTOP")?
+            .reply()?
+            .atom;
+        let atom_current_desktop = self
+            .conn
+            .intern_atom(false, b"_NET_CURRENT_DESKTOP")?
+            .reply()?
+            .atom;
+
+        //Avisar cuantos workspaces tenemos en total
+        let num_workspaces = self.workspaces.len() as u32;
+        self.conn.change_property32(
+            PropMode::REPLACE,
+            screen.root,
+            atom_num_desktop,
+            AtomEnum::CARDINAL,
+            &[num_workspaces],
+        )?;
+
+        //Avisar cuantos workspaces tenemos en total
+        let current_ws = self.current_workspace as u32;
+        self.conn.change_property32(
+            PropMode::REPLACE,
+            screen.root,
+            atom_current_desktop,
+            AtomEnum::CARDINAL,
+            &[current_ws],
+        )?;
+
+        self.conn.flush()?;
         Ok(())
     }
 
@@ -839,9 +883,11 @@ impl<C: Connection> Rustile<C> {
                     let focused = self.workspaces[self.current_workspace].stack.focused;
 
                     //Solo aplicamos esto si hay una ventana enfocada y es flotante
-                    if focused != 0 && self.floating_windows.contains(&focused){
+                    if focused != 0 && self.floating_windows.contains(&focused) {
                         //Pedimos su posicion y el size actual a X11
-                        if let Ok(geom) = self.conn.get_geometry(focused).and_then(|c| Ok(c.reply())){
+                        if let Ok(geom) =
+                            self.conn.get_geometry(focused).and_then(|c| Ok(c.reply()))
+                        {
                             let g = geom.unwrap().clone();
                             let new_x = g.x as i32 + dx;
                             let new_y = g.y as i32 + dy;
@@ -852,16 +898,17 @@ impl<C: Connection> Rustile<C> {
                         }
                     }
                     self.conn.flush();
-
-                },
+                }
                 Action::ResizeFloating(dw, dh) => {
                     let focused = self.workspaces[self.current_workspace].stack.focused;
 
-                    if focused != 0 && self.floating_windows.contains(&focused){
-                        if let Ok(geom) = self.conn.get_geometry(focused).and_then(|c| Ok(c.reply())){
+                    if focused != 0 && self.floating_windows.contains(&focused) {
+                        if let Ok(geom) =
+                            self.conn.get_geometry(focused).and_then(|c| Ok(c.reply()))
+                        {
                             //Calculamos el nuevo size (con un liminte minimo de 10 pixeles para no desaparecerla)
                             let g = geom.unwrap().clone();
-                            
+
                             let new_w = (g.width as i32 + dw).max(10) as u32;
                             let new_h = (g.height as i32 + dh).max(10) as u32;
 
@@ -871,7 +918,7 @@ impl<C: Connection> Rustile<C> {
                     }
 
                     self.conn.flush();
-                },
+                }
                 Action::Custom(func) => {
                     func(self);
                 }
