@@ -1,3 +1,4 @@
+use std::collections::btree_map::Values;
 use std::collections::{HashMap, HashSet};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
@@ -8,7 +9,6 @@ use x11rb::protocol::{Event, xproto::*};
 
 use x11rb::wrapper::ConnectionExt as _;
 use xkeysym::Keysym;
-use xkeysym::key::{aogonek, x};
 
 use crate::core::{Action, KeyBinding, RustileConfig, WindowId, Workspace};
 
@@ -20,13 +20,11 @@ pub struct Rustile<C: Connection> {
     atom_wm_protocols: Atom,
     key_map: HashMap<(u16, u8), Action<C>>,
     atom_wm_delete_window: Atom,
-    atom_wm_type: Atom,
-    atom_wm_type_dialog: Atom,
-    atom_wm_type_utility: Atom,
     _atom_wm_type_toolbar: Atom,
-    atom_wm_type_splash: Atom,
+
     pub config: RustileConfig,
     pub floating_windows: HashSet<Window>,
+    pub bar_height: u32,
 }
 
 impl<C: Connection> Rustile<C> {
@@ -45,36 +43,8 @@ impl<C: Connection> Rustile<C> {
             .unwrap()
             .atom;
 
-        let atom_wm_type = conn
-            .intern_atom(false, b"_NET_WM_WINDOW_TYPE")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
-
-        let atom_wm_type_dialog = conn
-            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_DIALOG")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
-
-        let atom_wm_type_utility = conn
-            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_UTILITY")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
-
         let _atom_wm_type_toolbar = conn
             .intern_atom(false, b"_NET_WM_WINDOW_TYPE_TOOLBAR")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
-
-        let atom_wm_type_splash = conn
-            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_SPLASH")
             .unwrap()
             .reply()
             .unwrap()
@@ -94,13 +64,10 @@ impl<C: Connection> Rustile<C> {
             key_map: HashMap::new(),
             atom_wm_protocols: wm_protocols,
             atom_wm_delete_window: wm_delete_window,
-            atom_wm_type,
-            atom_wm_type_dialog,
-            atom_wm_type_utility,
             _atom_wm_type_toolbar,
-            atom_wm_type_splash,
             config: RustileConfig::default(),
             floating_windows: HashSet::new(),
+            bar_height: 0,
         }
     }
 
@@ -113,7 +80,6 @@ impl<C: Connection> Rustile<C> {
             eprintln!("⚠️ Error al adoptar ventanas preexistentes: {}", e);
         }
         self.update_ewmh_desktops()?;
-
 
         loop {
             let event = self.conn.wait_for_event()?;
@@ -156,6 +122,51 @@ impl<C: Connection> Rustile<C> {
         //obtenemos las pantallas
         let screen = &self.conn.setup().roots[self.screen_num];
 
+        //Conseguimos los Atoms que vamos a decir que soportamos
+        let atom_supported = self
+            .conn
+            .intern_atom(false, b"_NET_SUPPORTED")?
+            .reply()?
+            .atom;
+        let atom_active_win = self
+            .conn
+            .intern_atom(false, b"_NET_ACTIVE_WINDOW")?
+            .reply()?
+            .atom;
+        let atom_num_desktops = self
+            .conn
+            .intern_atom(false, b"_NET_NUMBER_OF_DESKTOP")?
+            .reply()?
+            .atom;
+        let atom_current_desktop = self
+            .conn
+            .intern_atom(false, b"_NET_CURRENT_DESKTOP")?
+            .reply()?
+            .atom;
+        let atom_dock = self
+            .conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_DOCK")?
+            .reply()?
+            .atom;
+
+        //Creamos una lista con las habilidades
+        let supported_atoms = vec![
+            atom_supported,
+            atom_active_win,
+            atom_num_desktops,
+            atom_current_desktop,
+            atom_dock,
+        ];
+
+        //Lo publicamos en la ventana raiz
+        self.conn.change_property32(
+            PropMode::REPLACE,
+            screen.root,
+            atom_supported,
+            AtomEnum::ATOM,
+            &supported_atoms,
+        )?;
+
         // Queremos enterarnos de:
         // 1. SubstructureRedirect: Cuando una ventana quiere mostrarse.
         // 2. SubstructureNotify: Cuando una ventana cambia de estado o se destruye.
@@ -187,6 +198,32 @@ impl<C: Connection> Rustile<C> {
         self.config = config;
     }
 
+    pub fn get_window_top_strut(&self, win: Window) -> Result<u32, Box<dyn std::error::Error>>{
+        let atom_strut_partial = self.conn.intern_atom(false, b"_NET_WM_STRUT_PARTIAL").unwrap().reply().unwrap().atom;
+        let atom_strut = self.conn.intern_atom(false, b"_NET_WM_STRUT").unwrap().reply().unwrap().atom;
+        
+        //Intentamos leer STRUT_PARTIAL primero (el estandar moderno)
+        if let Ok(reply) = self.conn.get_property(false, win, atom_strut_partial, AtomEnum::ANY, 0, 12)?.reply(){
+            if let Some(mut values) = reply.value32(){
+                // El indice 2 es el "top strut"
+                if let Some(top) = values.nth(2){
+                    if top > 0 { return Ok(top);}
+                }
+            }
+        }
+        
+        //Intentamos leer STRUT_PARTIAL primero (el estandar antiguo)
+        if let Ok(reply) = self.conn.get_property(false, win, atom_strut, AtomEnum::ANY, 0, 4)?.reply(){
+            if let Some(mut values) = reply.value32(){
+                // El indice 2 es el "top strut"
+                if let Some(top) = values.nth(2){
+                    if top > 0 { return Ok(top);}
+                }
+            }
+        }
+        Ok(0)
+    }
+    
     pub fn set_window_workspace_tag(
         &mut self,
         win: Window,
@@ -274,6 +311,30 @@ impl<C: Connection> Rustile<C> {
         Ok(())
     }
 
+    fn is_dock(&self, win: Window) -> Result<bool, Box<dyn std::error::Error>> {
+        let atom_type = self
+            .conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE")?
+            .reply()?
+            .atom;
+        let atom_dock = self
+            .conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_DOCK")?
+            .reply()?
+            .atom;
+
+        let reply = self
+            .conn
+            .get_property(false, win, atom_type, AtomEnum::ANY, 0, 1024)?
+            .reply()?;
+
+        if let Some(mut values) = reply.value32() {
+            return Ok(values.any(|v| v == atom_dock));
+        }
+
+        Ok(false)
+    }
+
     fn move_to_workspace(&mut self, target: usize) -> Result<(), Box<dyn std::error::Error>> {
         let current = self.current_workspace;
 
@@ -345,7 +406,7 @@ impl<C: Connection> Rustile<C> {
         //4. Aplicamos el layour y damos el foco
         self.apply_layout()?;
 
-        if let Err(e) = self.update_ewmh_desktops(){
+        if let Err(e) = self.update_ewmh_desktops() {
             eprintln!("Error actualizado EWMH: {}", e);
         }
         if let Some(&first) = new_ws.stack.clients.first() {
@@ -516,6 +577,12 @@ impl<C: Connection> Rustile<C> {
             .reply()?
             .atom;
 
+        let atom_dock = self
+            .conn
+            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_DOCK")?
+            .reply()?
+            .atom;
+
         let type_reply = self
             .conn
             .get_property(false, win, atom_type, AtomEnum::ANY, 0, 1024)?
@@ -530,6 +597,7 @@ impl<C: Connection> Rustile<C> {
                     || v == atom_popup
                     || v == atom_tooltip
                     || v == atom_menu
+                    || v == atom_dock
             }) {
                 return Ok(true); // Es un dialogo, utilidad o pantalla de carga
             }
@@ -575,7 +643,7 @@ impl<C: Connection> Rustile<C> {
         //Si no cumple nada de lo anterior, va al tiling
         Ok(false)
     }
-
+/* 
     fn should_float(&self, win: WindowId) -> bool {
         let cookie = self
             .conn
@@ -599,7 +667,7 @@ impl<C: Connection> Rustile<C> {
         }
 
         false
-    }
+    }*/
 
     fn get_keycode_from_keysym(&self, sym: Keysym) -> u8 {
         let setup = self.conn.setup();
@@ -672,6 +740,7 @@ impl<C: Connection> Rustile<C> {
     fn apply_layout(&self) -> Result<(), Box<dyn std::error::Error>> {
         let ws = &self.workspaces[self.current_workspace];
         let screen = &self.conn.setup().roots[self.screen_num];
+        let mut dynamic_top_margin: u32 = 0;
 
         //Separamos las ventanas en dos grupos
         let mut tiled_clients = Vec::new();
@@ -686,11 +755,22 @@ impl<C: Connection> Rustile<C> {
             }
         }
 
+        for &win in &self.floating_windows {
+            if let Ok(strut) = self.get_window_top_strut(win){
+                if strut > dynamic_top_margin {
+                    dynamic_top_margin = strut;
+                }
+            }
+        }
+
         let n = tiled_clients.len();
 
         let sw = screen.width_in_pixels as u32;
         let sh = screen.height_in_pixels as u32;
         let g = self.config.gap_size;
+
+        let layout_y = dynamic_top_margin;
+        let layout_height = sh - dynamic_top_margin;
 
         // 1. Si no hay ventanas, no hacemos nada
         if n == 0 {
@@ -700,7 +780,13 @@ impl<C: Connection> Rustile<C> {
         // 2. CASO ESPECIAL: Una sola ventana
         if n == 1 {
             // Forzamos 0,0 y el ancho/alto TOTAL de la pantalla
-            self.resize_client(tiled_clients[0], g, g, sw - 2 * g, sh - 2 * g)?;
+            self.resize_client(
+                tiled_clients[0],
+                g,
+                layout_y + g,
+                sw - 2 * g,
+                layout_height - 2 * g,
+            )?;
         }
         // 3. CASO: Varias ventanas (Master/Stack)
         else {
@@ -711,13 +797,13 @@ impl<C: Connection> Rustile<C> {
             self.resize_client(
                 tiled_clients[0],
                 g,
-                g,
+                layout_y + g,
                 master_width - (g + g / 2), //Deja espacio a la deracha para el stack
-                sh - 2 * g,
+                layout_height - 2 * g,
             )?;
 
             let stack_count = n - 1;
-            let stack_height = sh / stack_count as u32;
+            let stack_height = layout_height / stack_count as u32;
 
             for (i, &win) in tiled_clients.iter().skip(1).enumerate() {
                 let y = i as u32 * stack_height;
@@ -725,7 +811,7 @@ impl<C: Connection> Rustile<C> {
                 self.resize_client(
                     win,
                     master_width + g / 2,
-                    y + g,
+                    layout_y + y + g,
                     stack_width - (g + g / 2),
                     stack_height - 2 * g,
                 )?;
@@ -738,10 +824,24 @@ impl<C: Connection> Rustile<C> {
 
     fn set_focus(&mut self, win: WindowId) -> Result<(), Box<dyn std::error::Error>> {
         let ws = &mut self.workspaces[self.current_workspace];
+        let screen = &self.conn.setup().roots[self.screen_num];
 
         // Guardamos el antiguo para quitarle el brillo
         let old_focus = ws.stack.focused;
         ws.stack.focused = win;
+
+        let atom_active_win = self
+            .conn
+            .intern_atom(false, b"_NET_ACTIVE_WINDOW")?
+            .reply()?
+            .atom;
+        self.conn.change_property32(
+            PropMode::REPLACE,
+            screen.root,
+            atom_active_win,
+            AtomEnum::WINDOW,
+            &[win],
+        )?;
 
         //Actualizamos ambos visualmente
         if old_focus != 0 {
@@ -897,7 +997,7 @@ impl<C: Connection> Rustile<C> {
                             let _ = self.conn.configure_window(focused, &aux);
                         }
                     }
-                    self.conn.flush();
+                    self.conn.flush()?;
                 }
                 Action::ResizeFloating(dw, dh) => {
                     let focused = self.workspaces[self.current_workspace].stack.focused;
@@ -917,7 +1017,7 @@ impl<C: Connection> Rustile<C> {
                         }
                     }
 
-                    self.conn.flush();
+                    self.conn.flush()?;
                 }
                 Action::Custom(func) => {
                     func(self);
@@ -939,6 +1039,19 @@ impl<C: Connection> Rustile<C> {
         if attr.override_redirect {
             // Ignoramos la ventana por completo y salimos del evento
             return Ok(());
+        }
+
+        if self.is_dock(win).unwrap_or(false) {
+            println!("Panel detectado! Calculando espacio automaticamente");
+
+            //Medimos exactamente que tan alta es la barra
+            if let Ok(geom) = self.conn.get_geometry(win).and_then(|c| Ok(c.reply())) {
+                self.bar_height = geom.unwrap().height as u32;
+
+                //le decimos a X11 que la dibuje, pero no la agregamos a nuestra lista de ventanas
+                self.conn.map_window(win)?;
+                self.apply_layout()?;
+            }
         }
 
         //consultamos al dectector

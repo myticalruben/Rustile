@@ -1,6 +1,6 @@
 use rustile::{
-    core::{Action, KeyBinding},
-    mods, rustile::Rustile,
+    core::{Action, KeyBinding, mods},
+    rustile::Rustile,
 };
 use x11rb::{NONE, connection::Connection};
 use xkeysym::Keysym;
@@ -14,13 +14,18 @@ pub fn keymaps<C: Connection>() -> Vec<KeyBinding<C>> {
         },
         KeyBinding {
             modifiers: mods::MOD_4,
+            key: Keysym::f,
+            action: Action::Spawn("flameshot gui".into()),
+        },
+        KeyBinding {
+            modifiers: mods::MOD_4,
             key: Keysym::b,
             action: Action::Spawn("brave-browser".into()),
         },
         KeyBinding {
             modifiers: mods::MOD_4,
             key: Keysym::space,
-            action: Action::Spawn("rofi -show drun -show-icons -theme launchpad".into()),
+            action: Action::Spawn("rofi -show drun".into()),
         },
         KeyBinding {
             modifiers: mods::MOD_4,
@@ -162,6 +167,4 @@ pub fn keymaps<C: Connection>() -> Vec<KeyBinding<C>> {
     keys
 }
 
-fn act<C: Connection>(wm: &mut Rustile<C>){
-
-}
+fn act<C: Connection>(wm: &mut Rustile<C>) {}

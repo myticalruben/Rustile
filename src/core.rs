@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use x11rb::connection::Connection;
 use xkeysym::Keysym;
 
