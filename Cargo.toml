@@ -7,14 +7,21 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-#Comunicacion con el servidor X 
-x11rb = { version = "0.13", features = ["all-extensions", "cursor"] }
+# 🛠️ El framework mágico para crear compositores Wayland
+smithay = "0.7.0" 
 
-#Para manejo de errores limpio
+# 📡 Implementación del protocolo Wayland
+wayland-server = "0.31.12"
+
+# 🔄 Bucle de eventos (Event Loop) para manejar teclado, ratón y renderizado
+calloop = "0.14.4"
+
+# ⌨️ Manejo de teclado (el estándar en Linux)
+xkbcommon = "0.9.0"
+
+# 📝 Sistema de logs moderno (reemplaza a log y env_logger)
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+
+# Manejo de errores
 thiserror = "1.0"
-
-#Para registrar los que pasa en el sistema
-log = "0.4"
-env_logger = "0.11"
-xkeysym = "0.2"
-lazy_static = "1.5.0"

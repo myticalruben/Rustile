@@ -1,2 +1,4 @@
-pub mod core;
-pub mod rustile;
+pub mod config;
+pub mod server;
+
+pub use config::RustileConfig;
