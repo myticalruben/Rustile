@@ -6,7 +6,7 @@
             "request": "launch",
             "name": "Debug Rustile en Xephyr",
             "cargo": {
-                "args": ["run", "--example", "config"]
+                "args": ["run", "--example", "basic"]
             },
             "env": {
                 "DISPLAY": ":1" // Apunta a la pantalla de Xephyr

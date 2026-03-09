@@ -6,9 +6,13 @@ description = "This is a Window Tiling Manager with Rust on x11 for now"
 license = "MIT"
 readme = "README.md"
 
+[lib]
+name = "rustile"
+path = "src/lib.rs"
+
 [dependencies]
 # 🛠️ El framework mágico para crear compositores Wayland
-smithay = "0.7.0" 
+smithay = { version = "0.7.0", features = ["backend_winit", "wayland_frontend", "renderer_gl"]} 
 
 # 📡 Implementación del protocolo Wayland
 wayland-server = "0.31.12"
