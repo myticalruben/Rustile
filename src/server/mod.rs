@@ -6,7 +6,7 @@ use crate::{RustileConfig, server::state::RustileState};
 use calloop::{EventLoop, Interest, Mode, PostAction, generic::Generic};
 use smithay::{
     backend::{
-        renderer::{Frame, Renderer, gles::{GlesRenderer, GlesTarget}},
+        renderer::{Frame, Renderer, gles::GlesRenderer},
         winit::{self, WinitEvent},
     },
     utils::{Rectangle, Transform},
@@ -47,6 +47,11 @@ impl RustileServer {
         let mut event_loop: EventLoop<CalloopData> = EventLoop::try_new()?;
         let loop_handle = event_loop.handle();
 
+        //Inicializando el Backend Winit (Ventana de pruevas)
+        println!("🖥️ Inicializando backend gráfico (Winit)...");
+        let (mut backend, mut winit_loop) =
+            winit::init::<GlesRenderer>().expect("Fallo al inicializar la ventana de Winit");
+
         //Smithay nos provee ListeingsSocketSource para reemplazar a bind_auto
         let socket_source = ListeningSocketSource::new_auto()?;
         let socket_name = socket_source.socket_name().to_string_lossy().into_owned();
@@ -78,11 +83,6 @@ impl RustileServer {
             Ok(PostAction::Continue)
         })?;
 
-        //Inicializando el Backend Winit (Ventana de pruevas)
-        println!("🖥️ Inicializando backend gráfico (Winit)...");
-        let (mut backend, mut winit_loop) =
-            winit::init::<GlesRenderer>().expect("Fallo al inicializar la ventana de Winit");
-
         //El bucle Infinito
         while data.state.is_running {
             winit_loop.dispatch_new_events(|event| {
@@ -93,22 +93,24 @@ impl RustileServer {
                         let size = backend.window_size();
 
                         {
-                        let mut guard = backend.bind().unwrap();
+                            let mut guard = backend.bind().unwrap();
 
-                        //Iniciamos un "Frame"
-                        let mut frame = guard.0.render(&mut guard.1, size, Transform::Normal).unwrap();
-                        
-                        //Limpiamos la pantalla con un color gris oscuro (RGBA)
-                        let color = [0.1, 0.1, 0.1, 1.0];
-                        let rect = Rectangle::from_size(size);
-                        frame.clear(color.into(), &[rect]).unwrap();
+                            //Iniciamos un "Frame"
+                            let mut frame = guard
+                                .0
+                                .render(&mut guard.1, size, Transform::Normal)
+                                .unwrap();
 
-                        //Terminamos y enviamos el fotograma a la pantalla
-                        frame.finish().unwrap();
+                            //Limpiamos la pantalla con un color gris oscuro (RGBA)
+                            let color = [0.5, 0.7, 0.1, 1.0];
+                            let rect = Rectangle::from_size(size);
+                            frame.clear(color.into(), &[rect]).unwrap();
+
+                            //Terminamos y enviamos el fotograma a la pantalla
+                            let _ = frame.finish().unwrap();
                         }
 
                         backend.submit(None).unwrap();
-                        
                     }
                     WinitEvent::CloseRequested => {
                         println!("👋 Solicitud de cierre recibida.");
@@ -116,7 +118,6 @@ impl RustileServer {
                     }
                     _ => {}
                 }
-
             });
 
             event_loop.dispatch(Some(Duration::from_millis(16)), &mut data)?;
