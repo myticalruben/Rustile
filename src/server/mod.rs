@@ -6,9 +6,11 @@ use crate::{RustileConfig, server::state::RustileState};
 use calloop::{EventLoop, Interest, Mode, PostAction, generic::Generic};
 use smithay::{
     backend::{
+        input::{InputEvent, KeyState, KeyboardKeyEvent},
         renderer::{Frame, Renderer, gles::GlesRenderer},
         winit::{self, WinitEvent},
     },
+    reexports::winit::keyboard::KeyCode,
     utils::{Rectangle, Transform},
     wayland::socket::ListeningSocketSource,
 };
@@ -113,8 +115,22 @@ impl RustileServer {
                         backend.submit(None).unwrap();
                     }
                     WinitEvent::CloseRequested => {
+                        println!("🛑 Cerrando Rustile de forma segura...");
                         println!("👋 Solicitud de cierre recibida.");
                         data.state.is_running = false;
+                    }
+                    WinitEvent::Input(InputEvent::Keyboard { event: key_event }) => {
+                        if key_event.state() == KeyState::Pressed {
+                            //Extraemos el codigo numerico de la tecla
+                            let key_code: u32 = key_event.key_code().into();
+                            println!("⌨️ Tecla presionada! Código numérico: {:?}", key_code);
+
+                            //La tecla escape
+                            if key_code == 9 {
+                                println!("🚪 Tecla Escape detectada. Apagando Rustile...");
+                                data.state.is_running = false;
+                            }
+                        }
                     }
                     _ => {}
                 }
