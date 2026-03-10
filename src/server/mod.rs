@@ -2,7 +2,7 @@ mod state;
 
 use std::{sync::Arc, time::Duration};
 
-use crate::{RustileConfig, server::state::RustileState};
+use crate::{RustileConfig, server::state::{ClientState, RustileState}};
 use calloop::{EventLoop, Interest, Mode, PostAction, generic::Generic};
 use smithay::{
     backend::{
@@ -10,7 +10,6 @@ use smithay::{
         renderer::{Frame, Renderer, gles::GlesRenderer},
         winit::{self, WinitEvent},
     },
-    reexports::winit::keyboard::KeyCode,
     utils::{Rectangle, Transform},
     wayland::socket::ListeningSocketSource,
 };
@@ -36,10 +35,10 @@ impl RustileServer {
         println!("🚀 Iniciando Rustile Wayland Compositor...");
 
         //Creamos el "Display" de Wayland (el servidor al que se conectan las apps)
-        let display: Display<RustileState> = Display::new()?;
+        let mut display: Display<RustileState> = Display::new()?;
 
         //Creamos el estado de nuestro WM
-        let state = RustileState::new(self.config);
+        let state = RustileState::new(self.config, &mut display);
 
         //juntamos ambos en CalloopData
         let mut data = CalloopData { state, display };
@@ -70,7 +69,7 @@ impl RustileServer {
             if let Err(e) = data
                 .display
                 .handle()
-                .insert_client(client_stream, Arc::new(()))
+                .insert_client(client_stream, Arc::new(ClientState::default()))
             {
                 eprintln!("Error añadiendo cliente: {}", e);
             }
