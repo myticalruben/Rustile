@@ -7,11 +7,9 @@ use calloop::{EventLoop, Interest, Mode, PostAction, generic::Generic};
 use smithay::{
     backend::{
         input::{InputEvent, KeyState, KeyboardKeyEvent},
-        renderer::{Frame, Renderer, gles::GlesRenderer},
+        renderer::{Frame, Renderer, gles::GlesRenderer, utils::{draw_render_elements}, element::surface::WaylandSurfaceRenderElement},
         winit::{self, WinitEvent},
-    },
-    utils::{Rectangle, Transform},
-    wayland::socket::ListeningSocketSource,
+    }, utils::{Point, Rectangle, Transform}, wayland::{seat::WaylandFocus, socket::ListeningSocketSource}
 };
 use wayland_server::Display;
 
@@ -96,16 +94,44 @@ impl RustileServer {
                         {
                             let mut guard = backend.bind().unwrap();
 
+
+                            let mut elements: Vec<WaylandSurfaceRenderElement<GlesRenderer>> = Vec::new();
+
+                            for window in data.state.space.elements(){
+                                //Bucamos sus coordenadas en el espacio
+                                let location =  data.state.space.element_location(window).unwrap_or(Point::from((0,0)));
+                                
+                        
+                                if let Some(surface) = window.wl_surface(){
+                                    let window_elements = smithay::backend::renderer::element::surface::render_elements_from_surface_tree(
+                                        &mut *guard.0, 
+                                        &*surface, 
+                                        location.to_physical(1), 
+                                        1.0, 
+                                        1.0, 
+                                        smithay::backend::renderer::element::Kind::Unspecified
+                                         );                             
+                                    //Le pedimos a OpenGl que dibuje la ventana
+                                    
+                                    elements.extend(window_elements);
+                                }
+
+                                
+                            
+                            }
+
                             //Iniciamos un "Frame"
                             let mut frame = guard
                                 .0
-                                .render(&mut guard.1, size, Transform::Normal)
+                                .render(&mut guard.1, size, Transform::Flipped180)
                                 .unwrap();
 
                             //Limpiamos la pantalla con un color gris oscuro (RGBA)
                             let color = [0.5, 0.7, 0.1, 1.0];
                             let rect = Rectangle::from_size(size);
                             frame.clear(color.into(), &[rect]).unwrap();
+
+                            let _ = draw_render_elements(&mut frame, 1.0, &elements, &[rect]).unwrap();
 
                             //Terminamos y enviamos el fotograma a la pantalla
                             let _ = frame.finish().unwrap();

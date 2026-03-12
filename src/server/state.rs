@@ -1,5 +1,5 @@
 use smithay::{
-    delegate_compositor, delegate_output, delegate_seat, delegate_shm, delegate_xdg_shell, input::{SeatHandler, SeatState}, output::{Output, PhysicalProperties, Subpixel}, wayland::{
+    backend::renderer::utils::on_commit_buffer_handler, delegate_compositor, delegate_output, delegate_seat, delegate_shm, delegate_xdg_shell, desktop::{Space, Window}, input::{SeatHandler, SeatState}, output::{Output, PhysicalProperties, Subpixel}, wayland::{
         buffer::BufferHandler, compositor::{CompositorClientState, CompositorHandler, CompositorState}, output::OutputHandler, shell::xdg::{XdgShellHandler, XdgShellState}, shm::{ShmHandler, ShmState}
     }
 };
@@ -19,6 +19,7 @@ pub struct RustileState {
     pub xdg_shell_state: XdgShellState,
     pub shm_state: ShmState,
     pub seat_state: SeatState<RustileState>,
+    pub space: Space<Window>
 }
 
 impl Default for ClientState{
@@ -53,6 +54,7 @@ impl RustileState {
         });
 
         let _global = output.create_global::<Self>(&display.handle());
+        let space = Space::default();
 
         Self {
             config,
@@ -61,6 +63,7 @@ impl RustileState {
             xdg_shell_state,
             shm_state,
             seat_state,
+            space
         }
     }
 }
@@ -95,7 +98,10 @@ impl CompositorHandler for RustileState {
         &client.get_data::<ClientState>().unwrap().compositor_state
     }
 
-    fn commit(&mut self, _surface: &wayland_server::protocol::wl_surface::WlSurface) {}
+    fn commit(&mut self, surface: &wayland_server::protocol::wl_surface::WlSurface) {
+        on_commit_buffer_handler::<Self>(surface);
+        self.space.refresh();
+    }
 }
 
 impl BufferHandler for RustileState {
@@ -115,6 +121,9 @@ impl XdgShellHandler for RustileState {
 
     fn new_toplevel(&mut self, surface: smithay::wayland::shell::xdg::ToplevelSurface) {
         println!("🪟 ¡Nueva ventana solicitada!");
+
+        let window = Window::new_wayland_window(surface.clone());
+        self.space.map_element(window, (100,100), true);
 
         surface.send_configure();
     }
