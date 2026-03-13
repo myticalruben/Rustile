@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler, delegate_compositor, delegate_output, delegate_seat, delegate_shm, delegate_xdg_shell, desktop::{Space, Window}, input::{Seat, SeatHandler, SeatState, keyboard::XkbConfig}, output::{Output, PhysicalProperties, Subpixel}, wayland::{
         buffer::BufferHandler, compositor::{CompositorClientState, CompositorHandler, CompositorState}, output::OutputHandler, shell::xdg::{XdgShellHandler, XdgShellState}, shm::{ShmHandler, ShmState}
@@ -14,6 +16,7 @@ pub struct ClientState {
 
 pub struct RustileState {
     pub config: RustileConfig,
+    pub pressed_keys: HashSet<u32>,
     pub is_running: bool,
     pub super_pressed:bool,
     pub seat: Seat<Self>,
@@ -74,7 +77,8 @@ impl RustileState {
             space,
             super_pressed,
             seat,
-            output
+            output,
+            pressed_keys: HashSet::new()
         }
     }
 }

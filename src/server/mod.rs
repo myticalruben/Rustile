@@ -2,7 +2,7 @@ mod state;
 
 use std::{process::Command, sync::Arc, time::Duration};
 
-use crate::{RustileConfig, server::state::{ClientState, RustileState}};
+use crate::{RustileConfig, config::Action, server::state::{ClientState, RustileState}};
 use calloop::{EventLoop, Interest, Mode, PostAction, generic::Generic};
 use smithay::{
     backend::{
@@ -27,6 +27,10 @@ pub struct RustileServer {
 impl RustileServer {
     pub fn new(config: RustileConfig) -> Self {
         Self { config }
+    }
+
+    pub fn set_config(&mut self, config: RustileConfig){
+        self.config = config;
     }
 
     pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
@@ -164,33 +168,39 @@ impl RustileServer {
                             let time = event.time_msec();
 
 
-                            if key_code == 64 {
-                                data.state.super_pressed = state == KeyState::Pressed;
-                                if !data.state.super_pressed{
-                                    println!("🔓 Tecla Super soltada - Estado limpio");
-                                }
-                                println!("Modificador Super: {}", data.state.super_pressed); // <-- Para ver en consola si se suelta
+                            if state == KeyState::Pressed {
+                                data.state.pressed_keys.insert(key_code);
+                            }else{
+                                data.state.pressed_keys.remove(&key_code);
                             }
 
                             let mut is_shortcut: bool = false;
 
-                            if data.state.super_pressed && state == KeyState::Pressed{
-                                match key_code {
-                                    36 => {
-                                        println!("🚀 Abriendo weston-terminal");
-                                        let wayland_socket = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-1".to_string());
-                                        Command::new("weston-terminal").env("WAYLAND_DISPLAY", wayland_socket).env_remove("DISPLAY").spawn().expect("No se pudo abrir");                                    
-                                        is_shortcut = true;
+                            if state == KeyState::Pressed{
+                                for (shortcut, action) in &data.state.config.shortcuts{
+                                    if key_code == shortcut.key && data.state.pressed_keys.contains(&shortcut.modifier){
+                                        match action {
+                                        Action::Spawn(command) => {
+                                            let wayland_socket = std::env::var("WAYLAND_DISPLAY")
+                                            .unwrap_or_else(|_| "wayland-1".to_string());
                                         
+                                            println!("🚀 Ejecutando comando: {}", command);
+                                            Command::new("sh")
+                                            .arg("-c")
+                                            .arg(command)
+                                            .env("WAYLAND_DISPLAY", wayland_socket)
+                                            .env_remove("DISPLAY")
+                                            .spawn()
+                                            .expect("Fallo al ejecutar el comando");
+                                        }
+                                        Action::Quit =>{
+                                            println!("🚪 Acción Quit detectada. Apagando Rustile...");
+                                            data.state.is_running = false;
+                                        }
                                     }
-
-                                    24 => {
-                                        println!("🚪 Tecla Escape detectada. Apagando Rustile...");
-                                        data.state.is_running = false;
-                                        is_shortcut = true;
-
+                                    is_shortcut = true;
+                                    break;
                                     }
-                                    _ => {}
                                 }
                             }
 
