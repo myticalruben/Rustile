@@ -1,15 +1,15 @@
 mod state;
 
-use std::{sync::Arc, time::Duration};
+use std::{process::Command, sync::Arc, time::Duration};
 
 use crate::{RustileConfig, server::state::{ClientState, RustileState}};
 use calloop::{EventLoop, Interest, Mode, PostAction, generic::Generic};
 use smithay::{
     backend::{
-        input::{InputEvent, KeyState, KeyboardKeyEvent},
-        renderer::{Frame, Renderer, gles::GlesRenderer, utils::{draw_render_elements}, element::surface::WaylandSurfaceRenderElement},
+        input::{Event, InputEvent, KeyState, KeyboardKeyEvent},
+        renderer::{Frame, Renderer, element::surface::WaylandSurfaceRenderElement, gles::GlesRenderer, utils::draw_render_elements},
         winit::{self, WinitEvent},
-    }, utils::{Point, Rectangle, Transform}, wayland::{seat::WaylandFocus, socket::ListeningSocketSource}
+    }, input::keyboard::FilterResult, utils::{Point, Rectangle, Transform}, wayland::{seat::WaylandFocus, socket::ListeningSocketSource}
 };
 use wayland_server::Display;
 
@@ -138,24 +138,68 @@ impl RustileServer {
                         }
 
                         backend.submit(None).unwrap();
+
+                        let time = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap();
+
+                        for window in data.state.space.elements(){
+                            window.send_frame(&data.state.output, time, Some(Duration::ZERO), |_, _| None);
+                        }
+
+                        backend.window().request_redraw();
                     }
+
                     WinitEvent::CloseRequested => {
                         println!("🛑 Cerrando Rustile de forma segura...");
                         println!("👋 Solicitud de cierre recibida.");
                         data.state.is_running = false;
                     }
-                    WinitEvent::Input(InputEvent::Keyboard { event: key_event }) => {
-                        if key_event.state() == KeyState::Pressed {
+                    WinitEvent::Input(InputEvent::Keyboard { event }) => {
+                        
                             //Extraemos el codigo numerico de la tecla
-                            let key_code: u32 = key_event.key_code().into();
+                            let key_code: u32 = event.key_code().into();
+                            let state = event.state();
                             println!("⌨️ Tecla presionada! Código numérico: {:?}", key_code);
 
-                            //La tecla escape
-                            if key_code == 9 {
-                                println!("🚪 Tecla Escape detectada. Apagando Rustile...");
-                                data.state.is_running = false;
+                            let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+                            let time = event.time_msec();
+
+
+                            if key_code == 64 {
+                                data.state.super_pressed = state == KeyState::Pressed;
+                                if !data.state.super_pressed{
+                                    println!("🔓 Tecla Super soltada - Estado limpio");
+                                }
+                                println!("Modificador Super: {}", data.state.super_pressed); // <-- Para ver en consola si se suelta
                             }
-                        }
+
+                            let mut is_shortcut: bool = false;
+
+                            if data.state.super_pressed && state == KeyState::Pressed{
+                                match key_code {
+                                    36 => {
+                                        println!("🚀 Abriendo weston-terminal");
+                                        let wayland_socket = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-1".to_string());
+                                        Command::new("weston-terminal").env("WAYLAND_DISPLAY", wayland_socket).env_remove("DISPLAY").spawn().expect("No se pudo abrir");                                    
+                                        is_shortcut = true;
+                                        
+                                    }
+
+                                    24 => {
+                                        println!("🚪 Tecla Escape detectada. Apagando Rustile...");
+                                        data.state.is_running = false;
+                                        is_shortcut = true;
+
+                                    }
+                                    _ => {}
+                                }
+                            }
+
+                            if !is_shortcut{
+                            let keyboard = data.state.seat.get_keyboard().unwrap();
+                            keyboard.input::<(), _>(&mut data.state, event.key_code(), state, serial, time, |_, _, _| FilterResult::Forward );
+
+                          }
+                        
                     }
                     _ => {}
                 }
