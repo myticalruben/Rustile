@@ -2,7 +2,7 @@ mod state;
 
 use std::{process::Command, sync::Arc, time::Duration};
 
-use crate::{RustileConfig, config::Action, server::state::{ClientState, RustileState}};
+use crate::{Modifiers, RustileConfig, config::Action, server::state::{ClientState, RustileState}};
 use calloop::{EventLoop, Interest, Mode, PostAction, generic::Generic};
 use smithay::{
     backend::{
@@ -161,13 +161,12 @@ impl RustileServer {
                         
                             //Extraemos el codigo numerico de la tecla
                             let key_code: u32 = event.key_code().into();
-                            let state = event.state();
-                            println!("⌨️ Tecla presionada! Código numérico: {:?}", key_code);
+                            let state_key = event.state();
 
                             let serial = smithay::utils::SERIAL_COUNTER.next_serial();
                             let time = event.time_msec();
 
-
+                            /* 
                             if state == KeyState::Pressed {
                                 data.state.pressed_keys.insert(key_code);
                             }else{
@@ -202,14 +201,70 @@ impl RustileServer {
                                     break;
                                     }
                                 }
-                            }
+                            }*/
 
-                            if !is_shortcut{
                             let keyboard = data.state.seat.get_keyboard().unwrap();
-                            keyboard.input::<(), _>(&mut data.state, event.key_code(), state, serial, time, |_, _, _| FilterResult::Forward );
+                            keyboard.input::<(), _>(
+                                &mut data.state, 
+                                event.key_code(), 
+                                state_key, 
+                                serial, 
+                                time, 
+                                |state, modifiers, keysym_handle|{
+                                    if state_key == KeyState::Pressed {
+                                        let keysyms = keysym_handle.modified_syms();
+                                        println!("---------------------------------------------------");
+                                        println!("⌨️ Tecla Bruta (Hardware): {:?}", key_code);
+                                        println!("🔤 Tecla Traducida (Keysym): {:?}", keysyms);
+                                        println!("🛡️ Modificadores: Super:{}, Alt:{}, Ctrl:{}, Shift:{}", modifiers.logo, modifiers.alt, modifiers.ctrl, modifiers.shift);
+                                    }
+                                    
+                                    if state_key != KeyState::Pressed {
+                                        return FilterResult::Forward;
+                                    }
 
-                          }
-                        
+                                    let mut current_mod = Modifiers::NONE;
+                                    if modifiers.alt { current_mod |= crate::config::Modifiers::ALT; }
+                                    if modifiers.ctrl { current_mod |= crate::config::Modifiers::CTRL; }
+                                    if modifiers.logo { current_mod |= crate::config::Modifiers::SUPER; }
+                                    if modifiers.shift { current_mod |= crate::config::Modifiers::SHIFT; }
+
+                                    let keysyms = keysym_handle.modified_syms();
+                                    let mut action_to_run = None;
+
+                                    for (shortcut, action) in &state.config.shortcuts{
+                                        if current_mod == shortcut.modifier && keysyms.contains(&shortcut.key){
+                                            action_to_run = Some(action.clone());
+                                            break;
+                                        }
+                                    }
+                                    
+                                    if let Some(action) = action_to_run {
+                                            match action {
+                                                Action::Spawn(command) =>{
+                                                    let wayland_socket = std::env::var("WAYLAND_DISPLAY")
+                                                    .unwrap_or_else(|_| "wayland-1".to_string());
+                                                println!("🚀 Ejecutando: {}", command);
+                                                Command::new("sh")
+                                                    .arg("-c")
+                                                    .arg(command)
+                                                    .env("WAYLAND_DISPLAY", wayland_socket)
+                                                    .env_remove("DISPLAY")
+                                                    .spawn()
+                                                    .expect("Fallo al ejecutar");
+                                                }
+                                                Action::Quit => {
+                                                    println!("🚪 Apagando Rustile...");
+                                                    state.is_running = false;
+                                                }
+                                            }
+                                            return FilterResult::Intercept(());
+                                        }
+
+                                     FilterResult::Forward
+                                }
+                            
+                            );                        
                     }
                     _ => {}
                 }

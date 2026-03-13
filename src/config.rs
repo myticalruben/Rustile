@@ -1,15 +1,29 @@
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+use bitflags::bitflags;
+use xkeysym::Keysym;
+
+#[derive(Debug, Clone, )]
 pub enum Action{
     Spawn(String),
     Quit
 }
 
+bitflags! {
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub struct Modifiers: u32{
+        const NONE  = 0b0000;
+        const SUPER = 0b0001;
+        const ALT   = 0b0010;
+        const CTRL  = 0b0100;
+        const SHIFT = 0b1000;
+    }  
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Shortcut{
-    pub modifier: u32,
-    pub key: u32,
+    pub modifier: Modifiers,
+    pub key: Keysym,
 }
 
 #[derive(Debug, Clone)]
@@ -32,8 +46,8 @@ impl Default for RustileConfig {
     fn default() -> Self {
 
         let mut shortcuts = HashMap::new();
-        shortcuts.insert(Shortcut {modifier: 64, key: 36}, Action::Spawn("weston-terminal".to_string()));
-        shortcuts.insert(Shortcut { modifier: 64, key: 24 }, Action::Quit);
+        shortcuts.insert(Shortcut {modifier: Modifiers::SUPER, key: Keysym::Return}, Action::Spawn("weston-terminal".to_string()));
+        shortcuts.insert(Shortcut { modifier: Modifiers::SUPER, key: Keysym::q }, Action::Quit);
 
         Self {
             border_width: 2,
