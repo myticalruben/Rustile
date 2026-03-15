@@ -55,7 +55,7 @@ impl RustileState {
         seat.add_keyboard(XkbConfig::default(), 200, 25).expect("Fallo al crear el teclado");
 
         let output = Output::new("Rustile-1".into(), PhysicalProperties {
-            size: (1920, 1080).into(),
+            size: (800, 600).into(),
             subpixel: Subpixel::Unknown,
             make: "Rustile".into(),
             model: "Monitor Virtual".into()
@@ -79,6 +79,58 @@ impl RustileState {
             seat,
             output,
             pressed_keys: HashSet::new()
+        }
+    }
+
+    pub fn arrange_windows(&mut self){
+        let output_geometry = self.space.output_geometry(&self.output).unwrap_or_else(|| smithay::utils::Rectangle::from_loc_and_size((0,0), (800,600)));
+
+        let screen_width = output_geometry.size.w;
+        let screen_height = output_geometry.size.h;
+
+        let screen_x = output_geometry.loc.x;
+        let screen_y = output_geometry.loc.y;
+
+        let gap = self.config.gap_size as i32;
+
+        let windows: Vec<_> = self.space.elements().cloned().collect();
+        let window_count = windows.len();
+
+        if window_count == 0 {
+            return;
+        }
+
+        for(i, window) in windows.iter().enumerate(){
+            let mut x = screen_x + gap;
+            let mut y = screen_y + gap;
+            let mut width = screen_width - (gap * 2);
+            let mut height = screen_height - (gap * 2);
+
+            if window_count > 1 {
+                if i == 0 {
+                    width = (screen_width / 2) - gap - (gap / 2);
+                }else {
+                    let stack_count = (window_count - 1) as i32;
+                    let stack_index = (i - 1) as i32;
+
+                    x = (screen_width / 2) + (gap / 2);
+                    width = (screen_width / 2) - gap - (gap / 2);
+
+                    let total_stack_height = screen_height - gap;
+                    height = (total_stack_height / stack_count) - gap;
+
+                    y = gap + (stack_index * (height + gap));
+                }
+            }
+
+            if let Some(toplevel) = window.toplevel() {
+                toplevel.with_pending_state(|state| {
+                    state.size = Some((width, height).into())
+                });
+                toplevel.send_configure();
+            }
+
+            self.space.map_element(window.clone(), (x, y), true);
         }
     }
 }
@@ -138,13 +190,15 @@ impl XdgShellHandler for RustileState {
         println!("🪟 ¡Nueva ventana solicitada!");
 
         let window = Window::new_wayland_window(surface.clone());
-        self.space.map_element(window, (100,100), true);
+
+        self.space.map_element(window, (0,0), true);
+        self.arrange_windows();
 
         let keyboard = self.seat.get_keyboard().unwrap();
         let wl_surface = surface.wl_surface();
         keyboard.set_focus(self, Some(wl_surface.clone()), smithay::utils::SERIAL_COUNTER.next_serial());
 
-        surface.send_configure();
+        //surface.send_configure();
     }
 
     fn new_popup(

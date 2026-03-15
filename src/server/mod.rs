@@ -166,43 +166,6 @@ impl RustileServer {
                             let serial = smithay::utils::SERIAL_COUNTER.next_serial();
                             let time = event.time_msec();
 
-                            /* 
-                            if state == KeyState::Pressed {
-                                data.state.pressed_keys.insert(key_code);
-                            }else{
-                                data.state.pressed_keys.remove(&key_code);
-                            }
-
-                            let mut is_shortcut: bool = false;
-
-                            if state == KeyState::Pressed{
-                                for (shortcut, action) in &data.state.config.shortcuts{
-                                    if key_code == shortcut.key && data.state.pressed_keys.contains(&shortcut.modifier){
-                                        match action {
-                                        Action::Spawn(command) => {
-                                            let wayland_socket = std::env::var("WAYLAND_DISPLAY")
-                                            .unwrap_or_else(|_| "wayland-1".to_string());
-                                        
-                                            println!("🚀 Ejecutando comando: {}", command);
-                                            Command::new("sh")
-                                            .arg("-c")
-                                            .arg(command)
-                                            .env("WAYLAND_DISPLAY", wayland_socket)
-                                            .env_remove("DISPLAY")
-                                            .spawn()
-                                            .expect("Fallo al ejecutar el comando");
-                                        }
-                                        Action::Quit =>{
-                                            println!("🚪 Acción Quit detectada. Apagando Rustile...");
-                                            data.state.is_running = false;
-                                        }
-                                    }
-                                    is_shortcut = true;
-                                    break;
-                                    }
-                                }
-                            }*/
-
                             let keyboard = data.state.seat.get_keyboard().unwrap();
                             keyboard.input::<(), _>(
                                 &mut data.state, 
